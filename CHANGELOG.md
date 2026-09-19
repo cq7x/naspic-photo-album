@@ -32,9 +32,19 @@
    - 每成功一个就自动刷新照片列表（通过 `naspic:upload-progress` 事件），新照片随传随出现
 
 5. **一键全新部署脚本 `deploy/fresh-deploy.sh`**
-   在干净的 Linux 服务器上一条命令跑完：检查/安装 Docker → 建数据目录 → 生成 `.env`
-   （MySQL 密码随机化）→ 编译镜像 → `compose up -d` → 轮询健康检查。
-   支持 `--install-docker` / `--mirror`（国内源）/ `--no-build` / `--code-dir` / `--data-dir` / `--photos`。
+   在干净的 Linux 服务器上一条命令跑完：检查/安装 Docker → **镜像源体检/加速器配置** → 建数据目录
+   → 生成 `.env`（MySQL 密码随机化）→ 编译镜像 → `compose up -d` → 轮询健康检查。
+   支持 `--install-docker` / `--mirror`（国内源）/ `--no-build` / `--no-mirror` /
+   `--registry-mirror <URL>` / `--code-dir` / `--data-dir` / `--photos`。
+
+5.1 **镜像源体检与加速器脚本 `deploy/docker-mirror.sh`**
+   专治 `docker build` / `compose up` 卡十几分钟后报
+   `dial tcp [IPv6]:443: connection timed out`、`download failed after attempts=6`：
+   ① 试拉 `hello-world`，能通就不动配置；② IPv4 可达但 IPv6 不通 → 给官方源域名固定 IPv4
+   （写 `/etc/hosts`，最小改动）；③ IPv4 也不通 → 逐个测速十来个候选加速器，
+   把可用的写进 `/etc/docker/daemon.json` 的 `registry-mirrors`，重启 docker 后复验；
+   ④ 全不可用 → 打印离线 `docker save` / `docker load` 兜底命令。
+   `build.sh` 与 `fresh-deploy.sh` 都会在编译前自动跑一遍自检。
 
 6. **托管库路径防护（重要，防丢数据）**
    新建托管库时若自定义 `storage_root` **目录不存在，直接拒绝并提示原因**。

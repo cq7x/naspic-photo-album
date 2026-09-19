@@ -46,6 +46,8 @@ sudo bash /home/ubuntu/naspic/deploy/fresh-deploy.sh --mirror
 #   国内服务器务必加 --mirror（apt + npm 走国内源，否则可能卡几十分钟）
 #   连 Docker 都要一起装就加 --install-docker
 #   镜像已编译过，只想重启就加 --no-build
+#   已配好加速器、不想再体检镜像源就加 --no-mirror
+#   拉镜像报 dial tcp / i/o timeout 时，先跑：sudo bash deploy/docker-mirror.sh
 
 # 4) 浏览器打开 http://<服务器IP>:8080  默认账号 admin / naspic123
 ```
@@ -191,6 +193,50 @@ df -h /opt   # 剩余空间，缩略图缓存会占用额外空间
 ```
 
 程序启动时会按内存自动判定档位并调整并发，也可以用 `NASPIC_TIER=low` 环境变量强制降档。
+
+### 2.5 镜像源体检与加速器（拉不动镜像先看这里）
+
+国内服务器最常踩的坑：前面都顺利，一到 `docker build` / `docker compose up` 就卡住，最后报：
+
+```
+error pulling image configuration: download failed after attempts=6:
+dial tcp [2a03:2880:...]:443: connect: connection timed out
+```
+
+报错里出现 `[IPv6 地址]` 基本就是两种原因之一：**走了不可达的 IPv6 路由**，或者**官方源整个不通**。
+项目自带了体检脚本，一条命令自动判断并修好：
+
+```bash
+sudo bash deploy/docker-mirror.sh          # 自动体检 + 自动修
+sudo bash deploy/docker-mirror.sh --check  # 只体检，不改任何配置
+sudo bash deploy/docker-mirror.sh --mirror https://你的加速器  # 手工指定
+sudo bash deploy/docker-mirror.sh --reset  # 恢复官方源
+```
+
+脚本的判断顺序：
+
+1. 试拉 `hello-world`，能通 → 官方源正常，**不动任何配置**直接退出
+2. 不通但 IPv4 能直连官方源 → 只是 IPv6 路由坏了，往 `/etc/hosts` 固定 IPv4（最小改动）
+3. IPv4 也不通 → 逐个测速候选加速器，把可用的写进 `/etc/docker/daemon.json` 的 `registry-mirrors`
+4. 重启 docker 后再拉一次验证；全部失败则给出**离线导入镜像**的兜底命令
+
+手工配置（不想跑脚本时）：
+
+```bash
+sudo mkdir -p /etc/docker
+sudo tee /etc/docker/daemon.json <<'EOF'
+{
+  "registry-mirrors": ["https://docker.m.daocloud.io", "https://docker.1ms.run"],
+  "ipv6": false,
+  "dns": ["223.5.5.5", "114.114.114.114"]
+}
+EOF
+sudo systemctl restart docker
+docker info | grep -A5 'Registry Mirrors'   # 确认已生效
+```
+
+> 加速器是第三方公益服务，随时可能变动。脚本内置了十来个候选地址逐个测速，
+> 都不可用时按脚本最后打印的命令，在有网的机器上 `docker save` 打包镜像再 `docker load` 离线导入。
 
 ---
 
@@ -755,6 +801,7 @@ crontab -e
 | 现象 | 原因 | 处理 |
 |---|---|---|
 | `COPY failed: file not found` | 构建上下文不是项目根目录 | 确认在项目根目录执行，命令末尾是 `.`，且带 `-f deploy/Dockerfile` |
+| `dial tcp [IPv6]:443: connection timed out` / `download failed after attempts=6` | 拉不到基础镜像：IPv6 路由不通或官方源被限 | `sudo bash deploy/docker-mirror.sh`（自动体检+配加速器），详见 [2.5](#25-镜像源体检与加速器拉不动镜像先看这里) |
 | `go mod tidy` 卡住/超时 | 服务器访问不到 Go 代理 | `docker build --build-arg GOPROXY=https://goproxy.cn,direct ...`（Dockerfile 已内置，检查网络或换 `https://proxy.golang.org`） |
 | `npm install` 极慢 | npm 官方源 | 加 `--build-arg NPM_REGISTRY=https://registry.npmmirror.com` |
 | `pkg-config: vips not found` | libvips 版本不匹配 | 改用纯 Go 后端：`TAGS= ./deploy/build.sh`，配置里 `thumb.backend: go` |
@@ -893,7 +940,9 @@ curl 127.0.0.1:8080/api/v1/health
 | 文件 | 作用 |
 |---|---|
 | `deploy/Dockerfile` | 三段构建（前端 → 后端 → 运行镜像） |
-| `deploy/build.sh` | 服务器本地一键构建脚本 |
+| `deploy/build.sh` | 服务器本地一键构建脚本（含镜像源自检） |
+| `deploy/docker-mirror.sh` | Docker 镜像源体检 + 加速器自动配置 |
+| `deploy/fresh-deploy.sh` | 全新部署一键脚本（装 Docker→建目录→编译→启动→探活） |
 | `deploy/buildx.sh` | 多架构构建 + 推送 |
 | `deploy/docker-compose.yml` | Compose 编排（含只读挂载示例） |
 | `server/config.example.yaml` | 配置文件模板，复制到 `/opt/naspic/data/config.yaml` |

@@ -40,6 +40,7 @@ naspic/
 │  ├─ docker-compose.yml    应用 + MySQL + Redis
 │  ├─ build.sh              编译镜像
 │  ├─ fresh-deploy.sh       一键全新部署（裸机 → 跑起来）
+│  ├─ docker-mirror.sh      镜像源体检 + 加速器自动配置
 │  ├─ prepare.sh            生成 .env + 建数据目录
 │  ├─ cleanup.sh            构建前磁盘清理
 │  └─ .env.example          配置模板（复制成 .env 后改）
@@ -66,9 +67,17 @@ sudo bash /home/ubuntu/naspic/deploy/fresh-deploy.sh --mirror
 - `--mirror`：apt + npm 走国内源，**国内服务器务必加**，否则可能卡几十分钟
 - `--install-docker`：连 Docker 一起装
 - `--no-build`：镜像已存在，只重启
+- `--no-mirror` / `--registry-mirror <URL>`：跳过镜像源体检 / 手工指定加速器
 - `--data-dir` / `--photos` / `--code-dir`：自定义路径
 
 完成后访问 `http://<服务器IP>:8080`，默认账号 `admin` / `naspic123`（**登录后立即改密码**）。
+
+> 构建卡住并报 `dial tcp [IPv6]:443: connection timed out`、`download failed after attempts=6`？
+> 那是拉不到 Docker 基础镜像，跑一下就行（会自动测速并配好加速器）：
+>
+> ```bash
+> sudo bash deploy/docker-mirror.sh
+> ```
 
 ### 手工分步
 

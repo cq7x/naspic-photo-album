@@ -32,6 +32,16 @@ echo ">>> 构建标签:   ${TAGS:-（空，纯 Go 后端）}"
 
 docker version >/dev/null 2>&1 || { echo "错误：未检测到 docker，请先安装 Docker"; exit 1; }
 
+# 镜像源自检：官方源拉不动的话，构建会在十几分钟后才失败，不如先探一下
+# 设 SKIP_MIRROR_CHECK=1 可跳过
+if [ "${SKIP_MIRROR_CHECK:-0}" != "1" ] && [ -f "${ROOT}/deploy/docker-mirror.sh" ]; then
+  if docker info >/dev/null 2>&1; then DK="docker"; else DK="sudo docker"; fi
+  if ! timeout 60 $DK pull hello-world:latest >/dev/null 2>&1; then
+    echo ">>> 官方镜像源不可达，自动配置加速器…"
+    sudo bash "${ROOT}/deploy/docker-mirror.sh" || echo ">>> 加速器配置未成功，仍继续尝试构建"
+  fi
+fi
+
 # 构建前清理宿主机空间（CLEAN=1 开启，小磁盘机器强烈建议开启）
 # 磁盘 < 8G 可用时自动触发，避免构建到一半因 No space left on device 失败
 AVAIL_KB=$(df -Pk / | awk 'NR==2{print $4}')
