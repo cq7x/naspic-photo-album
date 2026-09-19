@@ -1,0 +1,211 @@
+/* ============================================================
+   Element Plus 主题对齐
+   - 把 EP 的 CSS 变量桥接到 Naspic design tokens
+   - 覆盖对话框 / 表单 / 表格 / 下拉 的圆角与间距
+   ============================================================ */
+
+:root {
+  --el-color-primary: var(--brand);
+  --el-color-primary-light-3: var(--brand-hover);
+  --el-color-primary-light-5: var(--brand-hover);
+  --el-color-primary-light-7: var(--brand-soft);
+  --el-color-primary-light-8: var(--brand-soft);
+  --el-color-primary-light-9: var(--brand-soft);
+  --el-color-primary-dark-2: var(--brand-hover);
+
+  --el-color-success: var(--success);
+  --el-color-warning: var(--warning);
+  --el-color-danger: var(--danger);
+  --el-color-error: var(--danger);
+  --el-color-info: var(--info);
+
+  --el-border-radius-base: 8px;
+  --el-border-radius-small: 6px;
+  --el-border-radius-round: 999px;
+
+  --el-font-family: inherit;
+  --el-text-color-primary: var(--text);
+  --el-text-color-regular: var(--text-sub);
+  --el-text-color-secondary: var(--text-weak);
+  --el-text-color-placeholder: var(--text-weak);
+
+  --el-bg-color: var(--bg-surface);
+  --el-bg-color-page: var(--bg-app);
+  --el-bg-color-overlay: var(--bg-surface);
+  --el-fill-color-blank: var(--bg-surface);
+  --el-fill-color-light: var(--bg-subtle);
+  --el-fill-color-lighter: var(--bg-subtle);
+  --el-fill-color: var(--bg-hover);
+  --el-fill-color-dark: var(--bg-active);
+
+  --el-border-color: var(--border);
+  --el-border-color-light: var(--border);
+  --el-border-color-lighter: var(--border);
+  --el-border-color-extra-light: var(--border);
+  --el-border-color-hover: var(--border-strong);
+
+  --el-box-shadow-light: var(--shadow-sm);
+  --el-mask-color: var(--bg-mask);
+}
+
+html.dark {
+  --el-bg-color-overlay: var(--bg-surface);
+  --el-fill-color-blank: var(--bg-surface);
+}
+
+/* ---------------- 对话框 ---------------- */
+.el-dialog {
+  border-radius: var(--r-lg) !important;
+  overflow: hidden;
+  box-shadow: var(--shadow-lg) !important;
+  border: 1px solid var(--border);
+}
+.el-dialog__header {
+  padding: 16px 20px;
+  margin: 0;
+  border-bottom: 1px solid var(--border);
+}
+.el-dialog__title {
+  font-size: 15.5px;
+  font-weight: 650;
+  color: var(--text);
+  line-height: 1.4;
+}
+.el-dialog__headerbtn {
+  top: 12px;
+  right: 12px;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-sm);
+}
+.el-dialog__headerbtn:hover {
+  background: var(--bg-hover);
+}
+.el-dialog__body {
+  padding: 20px;
+  color: var(--text);
+}
+.el-dialog__footer {
+  padding: 14px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-subtle);
+}
+.el-overlay-dialog {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ---------------- 抽屉 ---------------- */
+.el-drawer {
+  border-radius: var(--r-lg) 0 0 var(--r-lg);
+}
+.el-drawer__header {
+  margin-bottom: 0;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-weight: 650;
+}
+.el-drawer__body {
+  padding: 16px 20px;
+}
+
+/* ---------------- 表单 ---------------- */
+.el-input__wrapper,
+.el-textarea__inner {
+  border-radius: var(--r-sm);
+  box-shadow: 0 0 0 1px var(--border) inset;
+  background: var(--bg-surface);
+}
+.el-input__wrapper:hover {
+  box-shadow: 0 0 0 1px var(--border-strong) inset;
+}
+.el-input__wrapper.is-focus {
+  box-shadow: 0 0 0 1px var(--brand) inset, 0 0 0 3px var(--brand-ring);
+}
+.el-select-dropdown {
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-md);
+}
+.el-select-dropdown__item {
+  border-radius: 6px;
+  margin: 2px 6px;
+  padding: 0 8px;
+}
+.el-form-item__label {
+  color: var(--text-sub);
+  font-weight: 500;
+}
+
+/* ---------------- 卡片 ---------------- */
+.el-card {
+  border-radius: var(--r-lg);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-xs);
+}
+.el-card__header {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.el-card__body {
+  padding: 18px;
+}
+
+/* ---------------- 表格 ---------------- */
+.el-table {
+  --el-table-border-color: var(--border);
+  --el-table-header-bg-color: var(--bg-subtle);
+  --el-table-row-hover-bg-color: var(--bg-hover);
+  --el-table-text-color: var(--text);
+  --el-table-header-text-color: var(--text-sub);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  font-size: 13px;
+}
+.el-table th.el-table__cell {
+  font-weight: 600;
+  background: var(--bg-subtle);
+}
+.el-table .el-table__cell {
+  padding: 9px 0;
+}
+
+/* ---------------- 按钮 ---------------- */
+.el-button {
+  border-radius: var(--r-sm);
+  font-weight: 500;
+}
+.el-button--small {
+  border-radius: 6px;
+}
+
+/* ---------------- 标签 / 进度 / 空态 ---------------- */
+.el-tag {
+  border-radius: 6px;
+  font-weight: 500;
+  border: none;
+}
+.el-progress-bar__outer {
+  background: var(--border);
+}
+.el-empty__description p {
+  color: var(--text-weak);
+}
+.el-alert {
+  border-radius: var(--r-md);
+  border: none;
+}
+
+/* ---------------- 下拉选项（自定义内容） ---------------- */
+.opt-name {
+  float: left;
+}
+.opt-tag {
+  float: right;
+  margin-left: 12px;
+  font-size: 11px;
+  color: var(--text-weak);
+}

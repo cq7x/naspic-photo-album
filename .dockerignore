@@ -1,0 +1,21 @@
+# 版本控制与 IDE
+.git
+.github
+.vscode
+.idea
+.workbuddy
+
+# 文档与工具（不参与镜像构建）
+docs
+putty
+*.md
+
+# 前端依赖与产物（镜像内会重新 npm install / build）
+web/node_modules
+web/dist
+
+# 本地数据与日志
+data
+*.log
+*.db
+*.sqlite

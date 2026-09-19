@@ -1,0 +1,21 @@
+{
+  "pages": [
+    {
+      "path": "pages/index/index",
+      "style": { "navigationBarTitleText": "Naspic 私有云相册" }
+    },
+    {
+      "path": "pages/backup/backup",
+      "style": { "navigationBarTitleText": "自动备份设置" }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarBackgroundColor": "#FFFFFF",
+    "backgroundColor": "#F5F7FA"
+  },
+  "easycom": {
+    "autoscan": true,
+    "custom": {}
+  }
+}

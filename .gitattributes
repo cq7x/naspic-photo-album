@@ -1,0 +1,20 @@
+# 仓库内统一用 LF 换行。
+# 尤其 deploy/*.sh：带 CRLF 传到 Linux 上会报
+#   /bin/bash^M: bad interpreter: No such file or directory
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.sql text eol=lf
+
+# 其他文本一律按 LF 存
+* text=auto eol=lf
+
+# 二进制不要动
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary

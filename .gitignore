@@ -1,0 +1,32 @@
+# ---------- 敏感配置（绝不能进仓库） ----------
+# deploy/.env 里有 MySQL 密码，只提交 .env.example
+.env
+deploy/.env
+*.local
+*.env.local
+
+# ---------- 依赖 ----------
+node_modules/
+
+# ---------- 构建产物 ----------
+dist/
+web/dist/
+.vite/
+
+# ---------- 数据与缓存（体积小可入库，但这里全是运行时产物） ----------
+data/
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# ---------- 工作区（本地会话记录、临时同步包） ----------
+.workbuddy/
+
+# ---------- 第三方二进制工具（PuTTY，不进仓库） ----------
+putty/
+
+# ---------- 系统垃圾 ----------
+.DS_Store
+Thumbs.db
+desktop.ini
