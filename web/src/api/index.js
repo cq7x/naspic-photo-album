@@ -163,3 +163,9 @@ export const upsertSyncTask = (data) => http.put('/sync/tasks', data)
 export const deleteSyncTask = (id) => http.delete('/sync/tasks/' + id)
 export const listSyncRecords = (taskId, state) =>
   http.get(`/sync/tasks/${taskId}/records`, { params: { state } })
+
+// ---------- 首次部署安装向导 ----------
+// 这三个接口无需 token,setup 模式下后端不挂认证中间件
+export const setupStatus = () => http.get('/setup/status')
+export const setupTest = (form) => http.post('/setup/test', form)
+export const setupSave = (form) => http.post('/setup/save', form)

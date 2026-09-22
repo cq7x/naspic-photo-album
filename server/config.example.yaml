@@ -13,11 +13,13 @@ server:
   write_timeout: 300
 
 database:
-  # 低配 ARM（树莓派/入门 NAS）强烈建议 sqlite；MySQL 仅在多用户大库场景使用
-  driver: sqlite
-  dsn: /data/naspic.db
-  # driver: mysql
-  # dsn: "user:pass@tcp(127.0.0.1:3306)/naspic?charset=utf8mb4&parseTime=True&loc=UTC"
+  # 首次启动由 Web 安装向导填写并写入本文件,此处留空进入 setup 模式。
+  # 也可手动写死(此时跳过向导直接连库):
+  #   driver: mysql
+  #   dsn: "user:pass@tcp(127.0.0.1:3306)/naspic?charset=utf8mb4&parseTime=True&loc=Local"
+  # 低配 ARM 单机可改 sqlite:dsn 填文件路径如 /data/naspic.db
+  driver: ""
+  dsn: ""
   max_open: 10
   max_idle: 2
   log_level: warn

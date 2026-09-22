@@ -59,6 +59,8 @@ if [ "$USE_MIRROR" = "1" ]; then
   APT_MIRROR="mirrors.aliyun.com"
   NPM_REGISTRY="https://registry.npmmirror.com"
 fi
+# export 给子进程（build.sh / docker build）使用，sudo 环境下前缀赋值可能丢失
+export APT_MIRROR NPM_REGISTRY
 
 say() { echo; echo ">>> $*"; }
 die() { echo; echo "!!! $*"; exit 1; }
@@ -149,8 +151,10 @@ mkdir -p "$DATA_DIR" "$MYSQL_DIR"
 echo "    已就绪"
 
 # 数据目录绝不能在代码目录里 —— 同步代码会 rm -rf 重建，数据会一起没
+# 注意：必须严格判断父子关系，否则 /home/ubuntu/naspic-data 会被误判成
+#       /home/ubuntu/naspic 的子目录（字符串前缀匹配的坑）
 case "$DATA_DIR" in
-  "$CODE_DIR"*) die "数据目录不能放在代码目录里（$DATA_DIR），重新同步代码会删光数据！" ;;
+  "$CODE_DIR"|"$CODE_DIR"/*) die "数据目录不能放在代码目录里（$DATA_DIR），重新同步代码会删光数据！" ;;
 esac
 
 # ---------- 4. .env ----------
@@ -180,7 +184,7 @@ chmod +x ./*.sh
 if [ "$NO_BUILD" = "1" ]; then
   echo "    --no-build：跳过编译"
 else
-  APT_MIRROR="$APT_MIRROR" NPM_REGISTRY="$NPM_REGISTRY" bash ./build.sh || {
+  bash ./build.sh || {
     echo
     echo "!!! 构建失败。如果报错里有 dial tcp / i/o timeout / download failed，"
     echo "    那就是镜像没拉下来，先跑一遍："
@@ -224,7 +228,13 @@ else
 fi
 echo "------------------------------------------------------------"
 echo " 访问地址： http://${IP:-服务器IP}:8080"
-echo " 默认账号： admin / naspic123   （登录后请立刻改密码）"
+echo " 首次访问会进入「数据库安装向导」,填入下面的 MySQL 密码即可:"
+MYSQL_PWD="$(grep ^MYSQL_PASSWORD= .env 2>/dev/null | cut -d= -f2-)"
+echo "   数据库账号: naspic"
+echo "   数据库密码: ${MYSQL_PWD:-naspic_2026}（在向导页密码框填这个）"
+echo "   主机/端口/库名用默认值（mysql / 3306 / naspic）"
+echo " 安装完成后用此账号登录:"
+echo "   默认账号: admin / naspic123   （登录后请立刻改密码）"
 echo " 容器状态： cd $CODE_DIR/deploy && docker compose ps"
 echo "============================================================"
 echo

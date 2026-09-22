@@ -81,9 +81,12 @@ services:
       NASPIC_DATA_DIR: /data
       NASPIC_WEB_ROOT: /web
       NASPIC_LOG_LEVEL: info
-      # ---- 数据库：MySQL ----
-      NASPIC_DB_DRIVER: mysql
-      NASPIC_DB_DSN: "${MYSQL_USER:-naspic}:${MYSQL_PASSWORD:-naspic_2026}@tcp(mysql:3306)/${MYSQL_DATABASE:-naspic}?charset=utf8mb4&parseTime=True&loc=Local"
+      # ---- 数据库:由 Web 安装向导填写并写入 /data/config.yaml ----
+      # 首次启动 DSN 为空,自动进入 setup 模式(只挂载 /setup/* 接口)
+      # 用户在浏览器打开 8080 → 填表 → 测试连接 → 保存 → 后端热加载
+      # 如需跳过向导直接硬编码,取消下面两行注释即可
+      # NASPIC_DB_DRIVER: mysql
+      # NASPIC_DB_DSN: "${MYSQL_USER:-naspic}:${MYSQL_PASSWORD:-naspic_2026}@tcp(mysql:3306)/${MYSQL_DATABASE:-naspic}?charset=utf8mb4&parseTime=True&loc=Local"
       # ---- Redis 缓存（连不上会自动降级，不影响使用）----
       NASPIC_REDIS_ENABLED: "true"
       NASPIC_REDIS_ADDR: redis:6379

@@ -142,7 +142,10 @@ func Default() *Config {
 			ReadTimeout: 60, WriteTimeout: 300,
 		},
 		Database: DatabaseConfig{
-			Driver: "sqlite", DSN: "./data/naspic.db",
+			// 默认空:首次启动(config.yaml 不存在)进入 Web 安装向导,
+			// 用户填 MySQL 参数后写入 config.yaml。
+			// 本地开发如需 sqlite,手动写 config.yaml 指定。
+			Driver: "", DSN: "",
 			MaxOpen: 10, MaxIdle: 2, LogLevel: "warn",
 		},
 		// 默认关闭：没部署 Redis 时不能有任何副作用
@@ -291,4 +294,72 @@ func minInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// SaveDatabase 增量写回 config.yaml 的 database 段(driver/dsn),
+// 保留其他段与注释原样。文件不存在则新建。
+// 用 yaml.Node 而非 Config 结构体重写,避免抹掉注释和未知字段。
+func SaveDatabase(path, driver, dsn string) error {
+	var root yaml.Node
+	if b, err := os.ReadFile(path); err == nil {
+		if err := yaml.Unmarshal(b, &root); err != nil {
+			return fmt.Errorf("解析现有配置失败: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	// 确保 root 是 DocumentNode
+	if root.Kind == 0 {
+		root.Kind = yaml.DocumentNode
+		root.Content = []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}
+	}
+	if len(root.Content) == 0 || root.Content[0].Kind != yaml.MappingNode {
+		root.Content = []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}
+	}
+	mapping := root.Content[0]
+
+	// 找到或新建 database 段
+	var dbNode *yaml.Node
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if mapping.Content[i].Value == "database" {
+			dbNode = mapping.Content[i+1]
+			break
+		}
+	}
+	if dbNode == nil {
+		dbNode = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		mapping.Content = append(mapping.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "database"},
+			dbNode)
+	}
+
+	// 更新 driver / dsn 两个字段
+	upsertMapField(dbNode, "driver", driver)
+	upsertMapField(dbNode, "dsn", dsn)
+
+	// 确保父目录存在
+	if dir := filepath.Dir(path); dir != "" {
+		_ = os.MkdirAll(dir, 0o755)
+	}
+	out, err := yaml.Marshal(&root)
+	if err != nil {
+		return fmt.Errorf("序列化配置失败: %w", err)
+	}
+	return os.WriteFile(path, out, 0o644)
+}
+
+// upsertMapField 在 yaml Map 节点里更新或插入一个 string 字段
+func upsertMapField(m *yaml.Node, key, value string) {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			m.Content[i+1].Value = value
+			m.Content[i+1].Tag = "!!str"
+			return
+		}
+	}
+	m.Content = append(m.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value},
+	)
 }

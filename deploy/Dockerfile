@@ -39,9 +39,27 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # 国内服务器可传 --build-arg APT_MIRROR=mirrors.aliyun.com 避免 deb.debian.org 龟速
 ARG APT_MIRROR=""
 RUN if [ -n "${APT_MIRROR}" ]; then \
-        for f in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do \
-            [ -f "$f" ] && sed -i "s|deb.debian.org|${APT_MIRROR}|g" "$f"; \
-        done; \
+        # Debian 12 bookworm 使用 /etc/apt/sources.list.d/debian.sources（deb822 格式）
+        # 直接重写比 sed 替换更可靠，同时覆盖主源和安全源
+        if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+            cat > /etc/apt/sources.list.d/debian.sources <<EOF
+Types: deb
+URIs: http://${APT_MIRROR}/debian
+Suites: bookworm bookworm-updates
+Components: main
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+
+Types: deb
+URIs: http://${APT_MIRROR}/debian-security
+Suites: bookworm-security
+Components: main
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+EOF
+        fi; \
+        # 兼容传统 sources.list（部分镜像仍使用）
+        if [ -f /etc/apt/sources.list ]; then \
+            sed -i "s|deb.debian.org|${APT_MIRROR}|g; s|security.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list; \
+        fi; \
     fi
 
 # libvips-dev 提供 vips 头文件与 pkg-config；build-essential 供 cgo 使用
@@ -69,9 +87,24 @@ FROM debian:bookworm-slim
 
 ARG APT_MIRROR=""
 RUN if [ -n "${APT_MIRROR}" ]; then \
-        for f in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do \
-            [ -f "$f" ] && sed -i "s|deb.debian.org|${APT_MIRROR}|g" "$f"; \
-        done; \
+        if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+            cat > /etc/apt/sources.list.d/debian.sources <<EOF
+Types: deb
+URIs: http://${APT_MIRROR}/debian
+Suites: bookworm bookworm-updates
+Components: main
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+
+Types: deb
+URIs: http://${APT_MIRROR}/debian-security
+Suites: bookworm-security
+Components: main
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+EOF
+        fi; \
+        if [ -f /etc/apt/sources.list ]; then \
+            sed -i "s|deb.debian.org|${APT_MIRROR}|g; s|security.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list; \
+        fi; \
     fi
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -88,6 +121,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=builder /out/naspic-server /usr/local/bin/naspic-server
 COPY --from=web /web/dist /web
+# 默认配置模板:首次启动 /data/config.yaml 不存在时自动 cp 过去,
+# 让容器无需挂载 config.yaml 也能进入 setup 模式
+COPY server/config.example.yaml /app/config.example.yaml
 
 VOLUME ["/data", "/photos"]
 EXPOSE 8080
@@ -95,5 +131,6 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS http://127.0.0.1:8080/api/v1/health || exit 1
 
-ENTRYPOINT ["/usr/local/bin/naspic-server"]
-CMD ["-c", "/data/config.yaml"]
+# entrypoint: 确保 /data/config.yaml 存在(首次启动从模板复制),再启动服务
+ENTRYPOINT ["/bin/sh", "-c"]
+CMD ["[ -f /data/config.yaml ] || cp /app/config.example.yaml /data/config.yaml; exec /usr/local/bin/naspic-server -c /data/config.yaml"]

@@ -114,7 +114,7 @@ const { isDark, toggle } = useTheme()
 const mini = ref(localStorage.getItem('naspic.sidebar') === 'mini')
 watch(mini, (v) => localStorage.setItem('naspic.sidebar', v ? 'mini' : ''))
 
-const isLogin = computed(() => route.path === '/login')
+const isLogin = computed(() => route.path === '/login' || route.path === '/setup')
 
 const navs = [
   { key: 'photos', to: '/photos', label: '照片', icon: 'grid', match: ['/photos'] },
