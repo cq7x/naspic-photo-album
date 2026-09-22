@@ -39,24 +39,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # 国内服务器可传 --build-arg APT_MIRROR=mirrors.aliyun.com 避免 deb.debian.org 龟速
 ARG APT_MIRROR=""
 RUN if [ -n "${APT_MIRROR}" ]; then \
-        # Debian 12 bookworm 使用 /etc/apt/sources.list.d/debian.sources（deb822 格式）
-        # 直接重写比 sed 替换更可靠，同时覆盖主源和安全源
         if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
-            cat > /etc/apt/sources.list.d/debian.sources <<EOF
-Types: deb
-URIs: http://${APT_MIRROR}/debian
-Suites: bookworm bookworm-updates
-Components: main
-Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
-
-Types: deb
-URIs: http://${APT_MIRROR}/debian-security
-Suites: bookworm-security
-Components: main
-Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
-EOF
+            printf 'Types: deb\nURIs: http://%s/debian\nSuites: bookworm bookworm-updates\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n\nTypes: deb\nURIs: http://%s/debian-security\nSuites: bookworm-security\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n' "${APT_MIRROR}" "${APT_MIRROR}" > /etc/apt/sources.list.d/debian.sources; \
         fi; \
-        # 兼容传统 sources.list（部分镜像仍使用）
         if [ -f /etc/apt/sources.list ]; then \
             sed -i "s|deb.debian.org|${APT_MIRROR}|g; s|security.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list; \
         fi; \
