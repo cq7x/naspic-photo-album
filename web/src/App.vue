@@ -454,6 +454,8 @@ onMounted(loadSide)
 .content > * {
   flex: 1;
   min-height: 0;
+  padding: 20px 24px;
+  overflow-y: auto;
 }
 
 /* ---------------- 通用图标按钮 ---------------- */
