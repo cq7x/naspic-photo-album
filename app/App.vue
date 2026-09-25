@@ -1,12 +1,7 @@
 <script>
-import { initNetwork } from './utils/net.js'
-
 export default {
   onLaunch() {
-    initNetwork()
     // #ifdef APP-PLUS
-    // Android：转发目录选择器的结果（自定义基座需在原生层调用 forwardActivityResult）
-    plus.globalEvent.addEventListener('newintent', () => {})
     // 引导关闭电池优化（仅提示一次）
     const asked = uni.getStorageSync('naspic.batteryAsked')
     if (plus.os.name === 'Android' && !asked) {
