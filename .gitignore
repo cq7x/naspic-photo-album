@@ -12,6 +12,8 @@ node_modules/
 dist/
 web/dist/
 .vite/
+app/unpackage/
+app/.hbuilderx/
 
 # ---------- 数据与缓存（体积小可入库，但这里全是运行时产物） ----------
 data/

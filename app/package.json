@@ -1,0 +1,16 @@
+{
+  "name": "naspic-app",
+  "version": "1.0.0",
+  "description": "Naspic 私有云相册手机端",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "dev:h5": "uni",
+    "build:h5": "uni build",
+    "dev:app": "uni -p app",
+    "build:app": "uni build -p app"
+  },
+  "dependencies": {
+    "vue": "^3.2.47"
+  }
+}

@@ -22,6 +22,7 @@ export function localDeviceId() {
 
 /** 注册/上报设备信息（失败不影响使用，下次再试） */
 export async function initDevice() {
+  // #ifdef APP-PLUS
   const payload = {
     device_uuid: deviceUUID(),
     platform: plus.os.name === 'iOS' ? 2 : 1,
@@ -38,4 +39,9 @@ export async function initDevice() {
   } catch (e) {
     console.warn('[device] 注册失败，稍后重试:', e.message)
   }
+  // #endif
+  // #ifndef APP-PLUS
+  // H5/小程序端：仅生成 UUID，不注册设备
+  console.log('[device] 非App环境，跳过设备注册')
+  // #endif
 }

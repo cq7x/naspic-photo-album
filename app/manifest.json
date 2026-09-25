@@ -1,0 +1,49 @@
+{
+    "name" : "Naspic",
+    "appid" : "__UNI__2A0B75F",
+    "description" : "Naspic 私有云相册 - 手机自动备份",
+    "versionName" : "1.0.0",
+    "versionCode" : 100,
+    "transformPx" : false,
+    "app-plus" : {
+        "usingComponents" : true,
+        "splashscreen" : {
+            "alwaysUnderLaunch" : false,
+            "autoclose" : true,
+            "delay" : 0
+        },
+        "modules" : {
+            "Camera" : {},
+            "Gallery" : {}
+        },
+        "distribute" : {
+            "android" : {
+                "permissions" : [
+                    "<uses-permission android:name=\"android.permission.INTERNET\"/>",
+                    "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>",
+                    "<uses-permission android:name=\"android.permission.ACCESS_WIFI_STATE\"/>",
+                    "<uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\"/>",
+                    "<uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\"/>",
+                    "<uses-permission android:name=\"android.permission.READ_MEDIA_IMAGES\"/>",
+                    "<uses-permission android:name=\"android.permission.READ_MEDIA_VIDEO\"/>",
+                    "<uses-permission android:name=\"android.permission.FOREGROUND_SERVICE\"/>",
+                    "<uses-permission android:name=\"android.permission.FOREGROUND_SERVICE_DATA_SYNC\"/>",
+                    "<uses-permission android:name=\"android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS\"/>",
+                    "<uses-permission android:name=\"android.permission.RECEIVE_BOOT_COMPLETED\"/>"
+                ],
+                "minSdkVersion" : 24,
+                "targetSdkVersion" : 33
+            },
+            "ios" : {
+                "infoPlist" : {
+                    "NSPhotoLibraryUsageDescription" : "需要访问相册以备份照片到你的 Naspic 服务器",
+                    "NSPhotoLibraryAddUsageDescription" : "需要保存照片到相册",
+                    "NSCameraUsageDescription" : "需要拍照功能"
+                },
+                "dSYMs" : false
+            },
+            "sdkConfigs" : {}
+        }
+    },
+    "vueVersion" : "3"
+}

@@ -1,0 +1,51 @@
+# ============================================================
+# Naspic 飞牛 NAS 部署配置（复用已有 MySQL + Redis）
+#
+# 前置条件：
+#   1. NAS 上已运行 MySQL 容器（端口 3306）和 Redis 容器
+#   2. 已在 MySQL 中创建数据库 naspic 和用户（见下方说明）
+#   3. 照片目录 /vol1/1000/workspace/photo 已存在
+#
+# 部署步骤：
+#   1. mkdir -p /vol1/1000/docker-data/naspic-photo
+#   2. 复制此文件到 NAS，例如 /vol1/1000/docker-data/naspic/docker-compose.yml
+#   3. 修改下方 NASPIC_DB_DSN 中的数据库账号密码
+#   4. docker compose up -d
+#   5. 浏览器打开 http://<NAS_IP>:8080 → 安装向导填 MySQL 参数
+# ============================================================
+
+services:
+  naspic:
+    image: naspic:latest
+    build:
+      context: /vol1/1000/naspic       # NAS 上的项目源码目录
+      dockerfile: deploy/Dockerfile
+      args:
+        VERSION: "1.8.0"
+        TAGS: "vips"
+    container_name: naspic
+    restart: unless-stopped
+    network_mode: host                  # 用 host 网络，直接访问宿主机 3306/6379
+    environment:
+      TZ: Asia/Shanghai
+      NASPIC_DATA_DIR: /data
+      NASPIC_WEB_ROOT: /web
+      NASPIC_LOG_LEVEL: info
+      # ---- 数据库：留空走 Web 安装向导；或取消注释直接写死 ----
+      # NASPIC_DB_DRIVER: mysql
+      # NASPIC_DB_DSN: "naspic:你的密码@tcp(127.0.0.1:3306)/naspic?charset=utf8mb4&parseTime=True&loc=Local"
+      # ---- Redis 缓存（连不上会自动降级）----
+      NASPIC_REDIS_ENABLED: "true"
+      NASPIC_REDIS_ADDR: 127.0.0.1:6379
+      NASPIC_REDIS_TTL: "60"
+    volumes:
+      # 业务数据（缩略图、缓存、config.yaml 等）
+      - /vol1/1000/docker-data/naspic-photo:/data
+      # 已有照片目录：只读挂载，容器内绝不修改原图
+      - /vol1/1000/workspace/photo:/photos:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

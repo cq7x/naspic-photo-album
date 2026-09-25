@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no" />
+    <meta name="format-detection" content="telephone=no" />
+    <title>Naspic</title>
+    <script>
+      document.addEventListener('DOMContentLoaded', function() {
+        var viewport = document.querySelector('meta[name=viewport]')
+        if (viewport) {
+          viewport.content = 'width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no'
+        }
+      })
+    </script>
+    <link rel="stylesheet" href="<%= BASE_URL %>static/index.<%= VUE_APP_INDEX_CSS_HASH %>.css" />
+  </head>
+  <body>
+    <noscript>
+      <strong>请开启 JavaScript 后继续。</strong>
+    </noscript>
+    <div id="app"></div>
+    <!-- built files will be auto injected -->
+  </body>
+</html>

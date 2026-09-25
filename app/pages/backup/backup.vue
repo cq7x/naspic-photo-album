@@ -414,9 +414,7 @@ function showFail() {
   uni.showToast({ title: `失败 ${failCount.value} 条（详见同步日志）`, icon: 'none' })
 }
 function showLogs() {
-  uni.navigateTo({ url: '/pages/logs/logs' }).catch(() => {
-    uni.showModal({ title: '同步日志', content: logs.value.slice(0, 5).map((l) => l.msg).join('\n') || '暂无' })
-  })
+  uni.showModal({ title: '同步日志', content: logs.value.slice(0, 5).map((l) => l.msg).join('\n') || '暂无' })
 }
 
 // ---------- 系统设置引导 ----------
