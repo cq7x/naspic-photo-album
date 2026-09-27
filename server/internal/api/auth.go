@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -55,6 +56,26 @@ func (a *Auth) login(c *gin.Context) {
 	a.tokens[token] = u.ID
 	a.mu.Unlock()
 
+	// 令牌落库：容器重启后登录态不丢，否则手机端后台同步会全量 401
+	// 注意：gin.Context 只能在 handler 内使用，异步 goroutine 里不许碰 c，
+	// 所以 User-Agent 提前取出来
+	agent := strings.ToLower(c.GetHeader("User-Agent"))
+	go func() {
+		now3 := time.Now()
+		rec := model.UserToken{
+			Token: token, UserID: u.ID, Source: "unknown",
+			CreatedAt: &now3, LastSeenAt: &now3,
+		}
+		if strings.Contains(agent, "uni-app") || strings.Contains(agent, "huawei") || strings.Contains(agent, "okhttp") {
+			rec.Source = "app"
+		} else if strings.Contains(agent, "mozilla") {
+			rec.Source = "web"
+		}
+		if err := a.db.Create(&rec).Error; err != nil {
+			log.Printf("[auth] 令牌落库失败（不影响本次登录）: %v", err)
+		}
+	}()
+
 	now := time.Now()
 	a.db.Model(&model.User{}).Where("id = ?", u.ID).Update("last_login_at", now)
 	now2 := time.Now()
@@ -85,9 +106,25 @@ func (a *Auth) Middleware() gin.HandlerFunc {
 		uid, exist := a.tokens[token]
 		a.mu.RUnlock()
 		if !exist {
-			fail(c, http.StatusUnauthorized, "令牌无效或已过期")
-			c.Abort()
-			return
+			// 内存里没有（服务重启过）——回查数据库，命中则恢复到内存缓存。
+			// 这一步解决了「服务器重启后手机端同步全部 401」的问题。
+			var t model.UserToken
+			if err := a.db.Where("token = ?", token).First(&t).Error; err != nil || t.UserID == 0 {
+				fail(c, http.StatusUnauthorized, "令牌无效或已过期")
+				c.Abort()
+				return
+			}
+			if t.ExpiresAt != nil && t.ExpiresAt.Before(time.Now()) {
+				fail(c, http.StatusUnauthorized, "令牌无效或已过期")
+				c.Abort()
+				return
+			}
+			uid = t.UserID
+			a.mu.Lock()
+			a.tokens[token] = uid
+			a.mu.Unlock()
+			go a.db.Model(&model.UserToken{}).Where("id = ?", t.ID).
+				Update("last_seen_at", time.Now())
 		}
 		c.Set("user_id", uid)
 		c.Next()

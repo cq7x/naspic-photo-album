@@ -4,6 +4,33 @@
 
 ---
 
+## v1.8.2 — 修 root cause：同步报 HTTP 401 + 同步停不下来
+
+### 修复
+
+1. **【根因】服务端令牌只存内存 → 容器一重启，手机端同步全部 401**
+   `server/internal/api/auth.go` 原来的 Auth 是 `tokens map[string]int64`（纯内存），
+   服务器重启 / `docker compose up -d` 重建容器后所有令牌蒸发，
+   而手机端还拿着旧 token 继续跑 —— 于是扫描出 2102 个文件、每个都报 `HTTP 401`。
+   现在新增 `user_tokens` 表：**登录时令牌落库，鉴权时内存 miss 回查数据库**，
+   服务器重启后手机端不用再重新登录。
+
+2. **App 端 401 统一收口**
+   - `app/utils/api.js`：新增 `AuthError` / `onUnauthorized()` / `ensureAuth()`，
+     任何请求拿到 401 就清 token + 广播 `naspic:unauthorized`
+   - 同步开始前先 `ensureAuth()`，登录失效直接弹窗提示，**不再拿几千个文件白跑一遍**
+   - 同步过程中一旦出现 401/403，整轮同步立即作废并提示重新登录
+
+3. **同步终于能停了**
+   - `app/sync/queue.js`：`runLimit` / `retry` / `sleep` 全部支持 stopper，
+     停止信号在「下一个文件、下一个分片、下一次退避等待」处生效（退避 sleep 拆成 500ms 可中断）
+   - `app/sync/engine.js`：新增 `stopSync()`，停止即终止本轮任务并保留已完成进度
+   - 「我的」页和「自动备份」页的主按钮在同步中变为红色 **停止同步**，不用再等它跑完
+
+4. 401 类错误不再重试（`retry` 识别 `unauthorized`），省掉每次 31 秒的指数退避。
+
+---
+
 ## v1.8.1 — 修复手机端同步必失败（大文件哈希校验误判）
 
 ### 修复

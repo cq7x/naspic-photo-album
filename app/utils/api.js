@@ -75,6 +75,32 @@ export async function resolveBase(force = false) {
 
 // ---------- 通用请求 ----------
 
+/** 登录态失效错误：上层据此中止同步并引导重新登录 */
+export class AuthError extends Error {
+  constructor(msg = '登录已过期，请重新登录') {
+    super(msg)
+    this.name = 'AuthError'
+    this.unauthorized = true
+  }
+}
+
+/**
+ * 登录态失效的统一收口：
+ *   清 token → 广播事件 → 返回 AuthError
+ * 服务端 token 目前重启容器即失效，所以 401 是手机上最常见的同步失败原因。
+ */
+function onUnauthorized(msg) {
+  try { uni.removeStorageSync('naspic.token') } catch (e) { /* ignore */ }
+  try { uni.$emit && uni.$emit('naspic:unauthorized') } catch (e) { /* ignore */ }
+  return new AuthError(msg || '登录已过期，请重新登录')
+}
+
+/** 同步开始前确认登录态还有效（401 会抛 AuthError） */
+export async function ensureAuth() {
+  await request('/api/v1/libraries', { timeout: 8000 })
+  return true
+}
+
 async function request(path, options = {}) {
   const base = await resolveBase()
   const { method = 'GET', data, header = {}, timeout = 30000, raw = false } = options
@@ -89,6 +115,7 @@ async function request(path, options = {}) {
         header
       ),
       success: (res) => {
+        if (res.statusCode === 401) return reject(onUnauthorized('登录已过期'))
         if (res.statusCode >= 200 && res.statusCode < 300) {
           const body = res.data
           if (raw) return resolve(body)
@@ -185,6 +212,7 @@ export async function uploadChunk(sessionId, index, chunk) {
       timeout: 60000,
       success: (res) => {
         const b = res.data
+        if (res.statusCode === 401) return reject(onUnauthorized('登录已过期'))
         if (res.statusCode === 200 && b && b.code === 0) resolve(b.data)
         else reject(new Error((b && b.msg) || '分片上传失败'))
       },

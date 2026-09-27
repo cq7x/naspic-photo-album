@@ -363,6 +363,22 @@ func (SyncRecord) TableName() string { return "sync_records" }
 
 // ---------- 分片上传会话 ----------
 
+// UserToken 登录令牌（持久化）。
+// 之前令牌只在内存里，容器一重启/重新部署，手机端保存的 token 立刻失效，
+// 同步时所有接口返回 401 —— 这是手机端「同步失败」最常见的根因。
+// 落库后服务端重启不影响登录态。
+type UserToken struct {
+	ID         int64      `gorm:"primaryKey;autoIncrement" json:"id"`
+	Token      string     `gorm:"size:128;uniqueIndex;not null" json:"token"`
+	UserID     int64      `gorm:"not null;index" json:"user_id"`
+	Source     string     `gorm:"size:32" json:"source"` // web / app
+	CreatedAt  *time.Time `json:"created_at"`
+	LastSeenAt *time.Time `json:"last_seen_at"`
+	ExpiresAt  *time.Time `gorm:"index" json:"expires_at"` // 为空表示长期有效
+}
+
+func (UserToken) TableName() string { return "user_tokens" }
+
 type UploadSession struct {
 	ID              int64      `gorm:"primaryKey;autoIncrement" json:"id"`
 	SessionID       string     `gorm:"size:64;uniqueIndex;not null" json:"session_id"`

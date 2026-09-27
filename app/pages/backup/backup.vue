@@ -115,7 +115,7 @@
           <text class="title">同步状态</text>
           <text class="desc">{{ statusText }}</text>
         </view>
-        <button class="btn" :disabled="running" @click="syncNow">{{ running ? '同步中…' : '立即同步' }}</button>
+        <button class="btn" :class="{ stop: running }" @click="onMainBtn">{{ running ? (stopping ? '停止中…' : '停止同步') : '立即同步' }}</button>
       </view>
 
       <view class="progress" v-if="running">
@@ -166,11 +166,11 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import * as store from '../../utils/store.js'
 import * as api from '../../utils/api.js'
 import { pickFolder } from '../../utils/folderPicker.js'
-import { runAll, onStateChange, isRunning, STATE } from '../../sync/engine.js'
+import { runAll, onStateChange, isRunning, stopSync, STATE } from '../../sync/engine.js'
 import { deviceUUID, localDeviceId } from '../../utils/device.js'
 import { requestAlbumPermission } from '../../utils/permission.js'
 
@@ -200,6 +200,7 @@ const libraries = ref([])
 const AUTO_LIB = { id: 0, name: '自动（按设备名建库，推荐）' }
 const libNames = computed(() => [AUTO_LIB.name].concat(libraries.value.map((l) => l.name || l.storage_root)))
 const running = ref(false)
+const stopping = ref(false) // 已点停止，等队列收尾
 const progress = reactive({ done: 0, total: 0, synced: 0, failed: 0, skipped: 0 })
 const logs = ref([])
 const failCount = ref(0)
@@ -250,9 +251,42 @@ onMounted(async () => {
         synced: evt.synced, failed: evt.failed, skipped: evt.skipped,
         total: evt.total, done: evt.synced + evt.failed + evt.skipped,
       })
+    } else if (evt.type === 'stopping') {
+      stopping.value = true
     }
   })
+
+  // 任何接口返回 401 都清 token 并广播，这里统一提示重新登录
+  uni.$off('naspic:unauthorized', onSessionExpired)
+  uni.$on('naspic:unauthorized', onSessionExpired)
 })
+
+function onSessionExpired() {
+  stopSync()
+  running.value = false
+  stopping.value = false
+  uni.showModal({
+    title: '登录已过期',
+    content: '服务端令牌失效了（一般是服务器重启或重新部署导致）。请到「我的」重新登录后再次同步。',
+    showCancel: false,
+    confirmText: '知道了',
+  })
+}
+
+/** 主按钮：同步中 → 停止；空闲 → 开始同步 */
+function onMainBtn() {
+  if (running.value) {
+    if (stopping.value) {
+      uni.showToast({ title: '正在收尾，稍等几秒', icon: 'none' })
+      return
+    }
+    stopSync()
+    stopping.value = true
+    uni.showToast({ title: '已请求停止，正在收尾…', icon: 'none' })
+    return
+  }
+  syncNow()
+}
 
 function persist() {
   uni.setStorageSync(SETTINGS_KEY, { ...settings })
@@ -396,6 +430,25 @@ async function syncServerTask(t) {
 
 async function syncNow() {
   if (running.value) return
+  stopping.value = false
+
+  // 开门第一件事：确认登录态。401 时别再拿 2102 个文件白白跑一遍
+  try {
+    await api.ensureAuth()
+  } catch (e) {
+    if (e && e.unauthorized) {
+      uni.showModal({
+        title: '登录已过期',
+        content: '请先到「我的」重新登录，同步需要有效的登录状态。',
+        showCancel: false,
+        confirmText: '知道了',
+      })
+    } else {
+      uni.showToast({ title: '连不上服务器：' + (e.message || ''), icon: 'none' })
+    }
+    return
+  }
+
   // 同步前再次确认相册权限（用户可能在系统设置中撤销了）
   // #ifdef APP-PLUS
   if (plus.os.name === 'Android') {
@@ -437,10 +490,14 @@ async function syncNow() {
     const r = await runAll()
     settings.lastSyncAt = Date.now()
     persist()
-    uni.showToast({
-      title: `完成：新增 ${r.synced || 0}，失败 ${r.failed || 0}`,
-      icon: 'none',
-    })
+    if (r && r.stopped) {
+      uni.showToast({ title: '同步已停止', icon: 'none' })
+    } else {
+      uni.showToast({
+        title: `完成：新增 ${r.synced || 0}，失败 ${r.failed || 0}`,
+        icon: 'none',
+      })
+    }
   } catch (e) {
     uni.showToast({ title: e.message || '同步失败', icon: 'none' })
   } finally {
@@ -527,4 +584,7 @@ function guideBattery() {
   background: #2979ff; color: #fff; border-radius: 32rpx;
 }
 .btn.ghost { background: #fff; color: #2979ff; border: 1rpx solid #2979ff; margin-top: 16rpx; }
+/* 同步中：按钮变成「停止」的红色态 */
+.btn.stop { background: #e53935; }
+.btn[disabled] { opacity: 0.5; }
 </style>

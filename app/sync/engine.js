@@ -11,7 +11,7 @@ import * as store from '../utils/store.js'
 import * as net from '../utils/net.js'
 import { scanSystemAlbum, scanFolder, nextCursor } from './scanner.js'
 import { upload } from './uploader.js'
-import { runLimit } from './queue.js'
+import { runLimit, Stopped } from './queue.js'
 
 export const STATE = {
   IDLE: 1, SCANNING: 2, SYNCING: 3, PAUSED: 4, ERROR: 5,
@@ -22,6 +22,8 @@ export const REC = {
 
 const listeners = new Set()
 let running = false
+let stopFlag = false // 用户点了「停止」
+let unauthorizedHit = false // 认证失败：整轮同步作废，别再跑剩下的文件
 
 export function onStateChange(fn) {
   listeners.add(fn)
@@ -31,10 +33,30 @@ function emit(evt) { listeners.forEach((fn) => fn(evt)) }
 export function isRunning() { return running }
 
 /**
+ * 请求停止：队列会在下一个文件 / 下一个分片处收尾，
+ * 不会等到 2102 个文件全跑完，也不会卡在指数退避的等待里。
+ */
+export function stopSync() {
+  if (!running) return false
+  stopFlag = true
+  store.addLog('info', '已请求停止，正在收尾…')
+  emit({ type: 'stopping' })
+  return true
+}
+export function isStopping() { return stopFlag }
+
+/** 给 queue.js 用的停止标志（getter 保证每次读到最新值） */
+function newStopper() {
+  return { get stopped() { return stopFlag } }
+}
+
+/**
  * 执行一个同步任务（一个文件夹）
  * @param {object} task
  */
-export async function runTask(task) {
+export async function runTask(task, stopperIn) {
+  const stopper = stopperIn || newStopper()
+  if (stopper.stopped) return { stopped: true }
   if (!task.enabled) return { skipped: true }
   if (task.wifiOnly && !net.isWifi()) {
     store.upsertTask(task.folderUri, { status: STATE.PAUSED })
@@ -74,12 +96,15 @@ export async function runTask(task) {
 
   store.upsertTask(task.folderUri, { status: STATE.SYNCING, totalCount: todo.length })
   emit({ type: 'task', task, state: STATE.SYNCING, total: todo.length })
+  if (stopper.stopped) return { stopped: true }
 
   // ③ 上传（并发：WiFi 2 / 移动网络 1）
   const concurrency = net.isWifi() ? 2 : 1
   let synced = 0, failed = 0, skipped = files.length - todo.length
 
   await runLimit(todo, concurrency, async (file) => {
+    // 停止：本文件不再开工，runLimit 看到标志后会直接收尾
+    if (stopper.stopped || unauthorizedHit) throw new Stopped()
     // 压缩策略：非原图时先本地压缩（长边 1920）
     const payload = task.uploadOriginal === false
       ? await compress(file)
@@ -88,6 +113,7 @@ export async function runTask(task) {
     try {
       const r = await upload(payload, task, {
         network: net.isWifi() ? 'wifi' : 'mobile',
+        stopper,
         onProgress: (done, total) => {
           emit({ type: 'file', task, file, done, total })
         },
@@ -100,13 +126,27 @@ export async function runTask(task) {
         store.markDone(taskId, file.path, { mediaId: r.mediaId, hash: r.hash, mtime: file.mtime, size: file.size })
       }
     } catch (e) {
+      if (e && e.stopped) throw e
       failed++
       const rec = store.getRecord(taskId, file.path) || {}
       store.markFailed(taskId, file.path, e, rec.retry || 0)
       store.addLog('error', `上传失败 ${file.name}: ${e.message}`)
+      // 401/403：登录态失效，整轮作废 —— 后面的文件结果一样都是失败，没必要继续跑
+      if (e && e.unauthorized) {
+        unauthorizedHit = true
+        stopFlag = true
+        emit({ type: 'unauthorized' })
+      }
     }
     emit({ type: 'progress', task, synced, failed, skipped, total: todo.length })
-  })
+  }, null, stopper)
+
+  if (stopper.stopped || unauthorizedHit) {
+    store.upsertTask(task.folderUri, { status: STATE.PAUSED, lastError: unauthorizedHit ? '登录已过期' : '用户停止' })
+    store.addLog('warn', unauthorizedHit ? '登录态失效，同步终止' : '同步已停止')
+    emit({ type: 'task', task, state: STATE.PAUSED, reason: unauthorizedHit ? 'unauthorized' : 'stopped' })
+    return { synced, failed, skipped, stopped: true, unauthorized: unauthorizedHit }
+  }
 
   // ④ 更新游标并上报服务端
   const cursor = nextCursor(files, task.syncCursor || 0)
@@ -145,18 +185,25 @@ export async function runTask(task) {
 export async function runAll() {
   if (running) return { ignored: true }
   running = true
-  const result = { synced: 0, failed: 0, skipped: 0, tasks: 0 }
+  stopFlag = false
+  unauthorizedHit = false
+  const stopper = newStopper()
+  const result = { synced: 0, failed: 0, skipped: 0, tasks: 0, stopped: false }
   try {
     const tasks = store.getTasks().filter((t) => t.enabled)
     for (const t of tasks) {
-      const r = await runTask(t)
+      if (stopper.stopped) break
+      const r = await runTask(t, stopper)
       result.synced += r.synced || 0
       result.failed += r.failed || 0
       result.skipped += r.skipped || 0
       result.tasks++
+      if (r && r.stopped) { result.stopped = true; break }
     }
   } finally {
+    if (stopper.stopped) result.stopped = true
     running = false
+    stopFlag = false
   }
   return result
 }

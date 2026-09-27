@@ -22,8 +22,8 @@
         <text class="label">设备标识</text>
         <text class="arrow">{{ deviceId }}</text>
       </view>
-      <button class="btn" :disabled="running" @click="syncNow">
-        {{ running ? '同步中…' : '立即同步' }}
+      <button class="btn" :class="{ stop: running }" @click="onSyncBtn">
+        {{ running ? (stopping ? '停止中…' : '停止同步') : '立即同步' }}
       </button>
       <view class="bar" v-if="running">
         <view class="bar-inner" :style="{ width: percent + '%' }" />
@@ -37,18 +37,20 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import * as api from '../../utils/api.js'
-import { runAll, isRunning } from '../../sync/engine.js'
-import { deviceUUID, localDeviceId } from '../../utils/device.js'
+import { runAll, isRunning, stopSync } from '../../sync/engine.js'
+import { deviceUUID, localDeviceId, initDevice } from '../../utils/device.js'
 
 const loggedIn = ref(false)
 const loading = ref(false)
 const running = ref(false)
+const stopping = ref(false) // 已请求停止，等队列收尾
 const percent = ref(0)
 const lastResult = ref('')
 const deviceId = ref('')
 
+const _s = uni.getStorageSync('naspic.settings') || {}
 const form = reactive({
-  baseURL: uni.getStorageSync('naspic.settings')?.baseURL || '',
+  baseURL: _s.baseURL || '',
   username: 'admin',
   password: '',
 })
@@ -57,6 +59,10 @@ onMounted(() => {
   loggedIn.value = !!uni.getStorageSync('naspic.token')
   deviceId.value = deviceUUID().slice(0, 12)
   running.value = isRunning()
+  // 已登录则上报设备（每次启动刷新 last_seen_at）
+  if (loggedIn.value) initDevice()
+  uni.$off('naspic:unauthorized', onSessionExpired)
+  uni.$on('naspic:unauthorized', onSessionExpired)
 })
 
 async function doLogin() {
@@ -65,6 +71,8 @@ async function doLogin() {
   try {
     await api.login(form.baseURL.replace(/\/$/, ''), form.username, form.password)
     loggedIn.value = true
+    // 登录成功后注册设备（需要 token）
+    await initDevice()
     uni.showToast({ title: '连接成功' })
   } catch (e) {
     uni.showToast({ title: e.message || '连接失败', icon: 'none' })
@@ -75,17 +83,60 @@ async function doLogin() {
 
 async function syncNow() {
   if (running.value) return
+  stopping.value = false
+  // 登录态校验：401 时不启动，避免几千个文件白跑一遍
+  try {
+    await api.ensureAuth()
+  } catch (e) {
+    if (e && e.unauthorized) {
+      loggedIn.value = false
+      lastResult.value = '登录已过期，请重新连接服务器'
+      uni.showModal({
+        title: '登录已过期', content: '服务器令牌失效了，请重新连接服务器。',
+        showCancel: false, confirmText: '知道了',
+      })
+    } else {
+      lastResult.value = '连不上服务器：' + (e.message || '')
+    }
+    return
+  }
   running.value = true
   percent.value = 0
   try {
     const r = await runAll()
-    lastResult.value = `完成：新增 ${r.synced || 0}，跳过 ${r.skipped || 0}，失败 ${r.failed || 0}`
+    if (r && r.stopped) lastResult.value = '同步已停止'
+    else lastResult.value = `完成：新增 ${r.synced || 0}，跳过 ${r.skipped || 0}，失败 ${r.failed || 0}`
     percent.value = 100
   } catch (e) {
     lastResult.value = e.message || '同步失败'
   } finally {
     running.value = false
+    stopping.value = false
   }
+}
+
+/** 主按钮：同步中时可随时停止 */
+function onSyncBtn() {
+  if (running.value) {
+    if (stopping.value) {
+      uni.showToast({ title: '正在收尾，稍等几秒', icon: 'none' })
+      return
+    }
+    stopSync()
+    stopping.value = true
+    uni.showToast({ title: '已请求停止，正在收尾…', icon: 'none' })
+    return
+  }
+  syncNow()
+}
+
+/** 服务端返回 401 时统一处理：停同步 + 回到登录态 */
+function onSessionExpired() {
+  stopSync()
+  running.value = false
+  stopping.value = false
+  loggedIn.value = false
+  lastResult.value = '登录已过期，请重新连接服务器'
 }
 
 function goBackup() {
@@ -109,6 +160,7 @@ function logout() {
 }
 .btn { margin-top: 16rpx; background: #2979ff; color: #fff; border-radius: 40rpx; font-size: 28rpx; }
 .btn.ghost { background: #fff; color: #2979ff; border: 1rpx solid #2979ff; }
+.btn.stop { background: #e53935; }
 .row { display: flex; justify-content: space-between; padding: 20rpx 0; border-bottom: 1rpx solid #f5f5f5; }
 .label { font-size: 28rpx; color: #606266; }
 .arrow { color: #c0c4cc; }

@@ -92,6 +92,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&model.Permission{},
 		&model.SyncDevice{}, &model.SyncTask{}, &model.SyncRecord{},
 		&model.UploadSession{},
+		&model.UserToken{},
 		&model.ScanJob{}, &model.ScanLog{}, &model.ScanCache{},
 		&model.Face{}, &model.FaceCluster{}, &model.MediaScene{},
 		&model.SchemaMigration{},
