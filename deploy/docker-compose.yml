@@ -65,7 +65,7 @@ services:
       context: ..                    # 构建上下文 = 项目根目录
       dockerfile: deploy/Dockerfile
       args:
-        VERSION: "1.8.2"
+        VERSION: "1.8.3"
         TAGS: "vips"
     container_name: naspic
     restart: unless-stopped

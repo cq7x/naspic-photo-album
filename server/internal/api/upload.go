@@ -58,6 +58,16 @@ func (s *Server) uploadCheck(c *gin.Context) {
 		ok(c, gin.H{"exists": true, "media_id": m.ID, "library_id": req.LibraryID})
 		return
 	}
+	// 哈希没匹配（例如旧版本用不同哈希算法存过、或 App 端采样哈希与全量不一致）：
+	// 再用「库 + 文件名 + 大小」兜底判断，避免把已存在的文件又传一遍、最后撞唯一键 500。
+	if req.Filename != "" {
+		var m2 model.MediaFile
+		if err2 := s.db.Where("library_id = ? AND filename = ? AND size_bytes = ? AND deleted_at IS NULL",
+			req.LibraryID, req.Filename, req.Size).First(&m2).Error; err2 == nil {
+			ok(c, gin.H{"exists": true, "media_id": m2.ID, "library_id": req.LibraryID})
+			return
+		}
+	}
 
 	// 查进行中的会话，支持断点续传
 	var sess model.UploadSession
@@ -327,7 +337,7 @@ func (s *Server) uploadComplete(c *gin.Context) {
 		return
 	}
 
-	// 4. 解析元数据并入库
+	// 4. 解析元数据
 	now := time.Now()
 	mf := model.MediaFile{
 		LibraryID:    sess.LibraryID,
@@ -368,6 +378,51 @@ func (s *Server) uploadComplete(c *gin.Context) {
 			mf.TakenAtSource = 1
 		}
 	}
+
+	// 5. 幂等保护：按「库 + 相对路径」查是否已有同路径记录，避免撞 uk_media_lib_path 唯一键 → 500。
+	//    典型场景：旧版本哈希算法不同导致 uploadCheck 误判「未存在」、或容器重建后原文件丢失但 DB 行还在
+	//    （re-upload 会撞唯一键）。统一按「已存在」处理：
+	//      - 文件仍在磁盘 → 直接秒传返回（Overwrite:false 会写成 `xxx (1).jpg` 孤儿，删掉即可）；
+	//      - 文件已丢失（本次覆盖写回成功）→ 用新内容更新该行，恢复 web 预览。
+	var existMF model.MediaFile
+	foundDup := false
+	for _, rp := range []string{relPath, res.RelPath} {
+		if rp == "" {
+			continue
+		}
+		if err := s.db.Where("library_id = ? AND relative_path = ? AND deleted_at IS NULL",
+			sess.LibraryID, rp).First(&existMF).Error; err == nil {
+			foundDup = true
+			break
+		}
+	}
+	if foundDup {
+		if res.Renamed {
+			// 写成了 `xxx (1).jpg` 孤儿，原文件还在磁盘，删掉孤儿、返回原行
+			_ = os.Remove(res.AbsPath)
+		} else {
+			// 文件原本丢失、本次已覆盖写回 → 用新内容修正该行，恢复可预览
+			s.db.Model(&model.MediaFile{}).Where("id = ?", existMF.ID).Updates(map[string]any{
+				"hash":            dbHash,
+				"hash_algo":       dbAlgo,
+				"size_bytes":      res.Size,
+				"mime":            detectMime(res.AbsPath),
+				"width":           mf.Width,
+				"height":          mf.Height,
+				"duration_ms":     mf.DurationMs,
+				"taken_at":        mf.TakenAt,
+				"taken_at_source": mf.TakenAtSource,
+				"updated_at":      time.Now(),
+			})
+		}
+		_ = os.RemoveAll(sess.TmpDir)
+		s.db.Model(&model.UploadSession{}).Where("id = ?", sess.ID).
+			Updates(map[string]any{"status": 1, "relative_path": relPath, "updated_at": time.Now()})
+		s.invalidate(cache.PfxMedia)
+		ok(c, gin.H{"media_id": existMF.ID, "dedup": true, "restored": !res.Renamed, "path": relPath})
+		return
+	}
+
 	if err := s.db.Create(&mf).Error; err != nil {
 		fail(c, 500, "入库失败: "+err.Error())
 		return
@@ -409,6 +464,18 @@ func shortHash(s string) string {
 		return s[:8]
 	}
 	return s
+}
+
+// isDuplicateKey 判断是否为唯一键冲突（MySQL 1062 / PostgreSQL 23505）
+func isDuplicateKey(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "Duplicate entry") ||
+		strings.Contains(msg, "1062") ||
+		strings.Contains(msg, "23505") ||
+		strings.Contains(msg, "UNIQUE")
 }
 
 // randSuffix 生成会话随机后缀
