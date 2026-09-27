@@ -275,14 +275,23 @@ func (s *Service) EnqueueAll(drv storage.StorageDriver) int {
 }
 
 // Prewarm 上传/扫描完成后预先生成一张缩略图（后台队列，不阻塞请求）
-func (s *Service) Prewarm(drv storage.StorageDriver, m model.MediaFile) {
-	srcAbs, err := storage.SafeJoin(drv.Root(), m.RelativePath)
+func (s *Service) Prewarm(drv storage.StorageDriver, m interface{}) {
+	media, ok := m.(model.MediaFile)
+	if !ok {
+		// 也可能是 *model.MediaFile
+		if ptr, ok2 := m.(*model.MediaFile); ok2 && ptr != nil {
+			media = *ptr
+		} else {
+			return
+		}
+	}
+	srcAbs, err := storage.SafeJoin(drv.Root(), media.RelativePath)
 	if err != nil {
 		return
 	}
 	px := sizes[storage.ThumbSM]
 	format := s.cfg.Thumb.Format
-	if m.MediaType == model.MediaVideo {
+	if media.MediaType == model.MediaVideo {
 		format = "jpeg"
 		if ffmpegBin == "" {
 			return
@@ -290,13 +299,13 @@ func (s *Service) Prewarm(drv storage.StorageDriver, m model.MediaFile) {
 	}
 	select {
 	case s.genQ <- genTask{
-		mediaID:  m.ID,
+		mediaID:  media.ID,
 		srcPath:  srcAbs,
-		cacheAbs: s.cachePath(drv.LibraryID(), m.Hash, string(storage.ThumbSM), px, format),
+		cacheAbs: s.cachePath(drv.LibraryID(), media.Hash, string(storage.ThumbSM), px, format),
 		size:     px,
 		quality:  s.cfg.Thumb.Quality,
 		format:   format,
-		isVideo:  m.MediaType == model.MediaVideo,
+		isVideo:  media.MediaType == model.MediaVideo,
 	}:
 	default: // 队列满了就算了，前端浏览时会懒加载补上
 	}

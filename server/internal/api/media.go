@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -112,6 +113,10 @@ func (s *Server) listMedia(c *gin.Context) {
 }
 
 // getMediaFile 直读原图。挂载模式下直接从宿主机目录流式读取，不复制不修改
+// 视频播放依赖 HTTP Range 请求分段加载，用 http.ServeContent 自动处理：
+//   - 解析 Range 头，返回 206 Partial Content
+//   - 设置 Accept-Ranges: bytes
+//   - 处理条件请求（If-Modified-Since / If-None-Match）
 func (s *Server) getMediaFile(c *gin.Context) {
 	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
 	var m model.MediaFile
@@ -144,7 +149,16 @@ func (s *Server) getMediaFile(c *gin.Context) {
 		c.Header("Content-Disposition", `attachment; filename="`+strings.ReplaceAll(m.Filename, `"`, "")+`"`)
 	}
 	c.Header("Cache-Control", "private, max-age=86400")
-	c.DataFromReader(200, m.SizeBytes, ctype, f, nil)
+
+	// 优先用 http.ServeContent：自动处理 Range（视频拖动进度条必需）、
+	// Content-Length、Accept-Ranges、条件请求等。
+	// 驱动返回的 *os.File 实现了 io.ReadSeeker，可直接传入。
+	if seeker, ok := f.(io.ReadSeeker); ok {
+		http.ServeContent(c.Writer, c.Request, m.Filename, time.Time{}, seeker)
+		return
+	}
+	// 降级：不支持 Seek 的驱动（极少），全量传输，不支持 Range
+	c.DataFromReader(http.StatusOK, m.SizeBytes, ctype, f, nil)
 }
 
 // getMediaThumb 缩略图（懒加载：未生成时由 thumb 模块现场生成）

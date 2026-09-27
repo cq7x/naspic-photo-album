@@ -128,6 +128,8 @@ const (
 type ThumbProvider interface {
 	// Get 返回缩略图字节与内容类型；未就绪时返回 ErrThumbPending
 	Get(ctx context.Context, drv StorageDriver, key string, size ThumbSize) ([]byte, string, error)
+	// Prewarm 上传后预生成缩略图（后台队列，不阻塞）
+	Prewarm(drv StorageDriver, m interface{})
 }
 
 // ErrThumbPending 缩略图正在生成队列中
@@ -137,6 +139,11 @@ var globalThumb ThumbProvider
 
 // RegisterThumbProvider 注册缩略图生成器
 func RegisterThumbProvider(p ThumbProvider) { globalThumb = p }
+
+// ThumbProviderInstance 取已注册的缩略图生成器（供上传后预生成用）
+func ThumbProviderInstance() (ThumbProvider, bool) {
+	return globalThumb, globalThumb != nil
+}
 
 // ThumbOf 统一取缩略图入口
 func ThumbOf(ctx context.Context, drv StorageDriver, key string, size ThumbSize) ([]byte, string, error) {
