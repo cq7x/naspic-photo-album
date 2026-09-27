@@ -17,11 +17,11 @@ import (
 )
 
 // Init 初始化数据库连接并执行自动迁移
+//
+// 连接带重试：容器编排（depends_on 仅覆盖 `compose up`）与单独重启 naspic 时，
+// MySQL/Redis 可能尚未就绪。若首连失败就直接降级到安装模式会卡死整站，
+// 因此这里用指数退避重试，等数据库起来后自动进入完整模式。
 func Init(cfg *config.Config) (*gorm.DB, error) {
-	var (
-		db  *gorm.DB
-		err error
-	)
 	level := glogger.Warn
 	switch strings.ToLower(cfg.Database.LogLevel) {
 	case "silent":
@@ -39,18 +39,46 @@ func Init(cfg *config.Config) (*gorm.DB, error) {
 		DisableForeignKeyConstraintWhenMigrating: true,
 	}
 
-	switch strings.ToLower(cfg.Database.Driver) {
-	case "mysql":
-		db, err = gorm.Open(mysql.Open(cfg.Database.DSN), gcfg)
-	case "sqlite":
-		fallthrough
-	default:
-		// 使用纯 Go 的 SQLite 实现（glebarez/sqlite），避免 cgo，
-		// 交叉编译 arm64 时无需 C 交叉工具链。
-		db, err = gorm.Open(sqlite.Open(cfg.Database.DSN), gcfg)
+	const maxAttempts = 30
+	const baseBackoff = time.Second
+	const maxBackoff = 5 * time.Second
+
+	var (
+		db  *gorm.DB
+		err error
+	)
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		switch strings.ToLower(cfg.Database.Driver) {
+		case "mysql":
+			db, err = gorm.Open(mysql.Open(cfg.Database.DSN), gcfg)
+		case "sqlite":
+			fallthrough
+		default:
+			// 使用纯 Go 的 SQLite 实现（glebarez/sqlite），避免 cgo，
+			// 交叉编译 arm64 时无需 C 交叉工具链。
+			db, err = gorm.Open(sqlite.Open(cfg.Database.DSN), gcfg)
+		}
+		if err == nil {
+			// 强制建立一次真实连接，让 MySQL 未就绪等惰性错误显形，
+			// 否则 gorm.Open 可能延迟到首个查询才报 connection refused。
+			if perr := pingDB(db); perr == nil {
+				break
+			} else {
+				err = perr
+			}
+		}
+		if attempt < maxAttempts {
+			backoff := baseBackoff * time.Duration(attempt)
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+			log.Printf("[store] 数据库连接失败(第%d/%d次): %v; %v 后重试…",
+				attempt, maxAttempts, err, backoff)
+			time.Sleep(backoff)
+		}
 	}
 	if err != nil {
-		return nil, fmt.Errorf("数据库连接失败: %w", err)
+		return nil, fmt.Errorf("数据库连接失败(已重试%d次): %w", maxAttempts, err)
 	}
 
 	sqlDB, err := db.DB()
@@ -78,6 +106,15 @@ func Init(cfg *config.Config) (*gorm.DB, error) {
 	}
 	log.Printf("[store] 数据库就绪 driver=%s", cfg.Database.Driver)
 	return db, nil
+}
+
+// pingDB 强制建立一次真实连接，让 MySQL 未就绪等惰性连接错误显形。
+func pingDB(db *gorm.DB) error {
+	sqlDB, err := db.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Ping()
 }
 
 // AutoMigrate 建表/补列

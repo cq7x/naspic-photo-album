@@ -63,6 +63,27 @@
 
 ---
 
+## v1.8.6 — 修复「重部署/重启后整站 404 卡安装模式」
+
+> 现象：重部署或单独重启 naspic 容器后，所有接口（auth/login、upload/*、media/*）
+> 全部返回 404，App 同步状态全失败。
+> 根因：启动瞬间 MySQL 尚未就绪（`dial tcp … connection refused`），`store.Init`
+> 连库失败即**永久降级到安装模式**，且不再重连；`depends_on: service_healthy` 仅在
+> `compose up` 时生效，单独重启 naspic 时不重算，于是中招。
+
+### 服务端
+
+1. **`store.Init` 数据库连接连重试**：最多 30 次、指数退避（1s→5s 上限，约 60s 上限），
+   每次强制 `Ping` 让 MySQL 未就绪等惰性错误显形；连上即进完整模式，彻底消除
+   「启动时数据库没好就卡死安装模式」的问题。
+
+### 运维
+
+- 已手动重启 naspic 容器（MySQL 已 healthy）恢复 1.8.5 正常运行；本次 1.8.6 从根本上
+  杜绝复发。
+
+---
+
 ## v1.8.3 — 修复上传撞唯一键导致整批失败（1062）
 
 > 根因来自服务器日志：`uploadComplete` 入库时撞 `media_files.uk_media_lib_path`
