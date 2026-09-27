@@ -43,6 +43,20 @@ async function ping(base) {
   })
 }
 
+/** 兼容版 Promise.any（ES2021 以下 WebView 不支持） */
+function promiseAny(promises) {
+  return new Promise((resolve, reject) => {
+    let pending = promises.length
+    if (pending === 0) return reject(new Error('empty'))
+    promises.forEach((p) => {
+      Promise.resolve(p).then(resolve, () => {
+        pending--
+        if (pending === 0) reject(new Error('all failed'))
+      })
+    })
+  })
+}
+
 /** 解析可用基址：LAN 优先，失败回落公网 */
 export async function resolveBase(force = false) {
   if (cachedBase && !force) return cachedBase
@@ -52,7 +66,7 @@ export async function resolveBase(force = false) {
   if (s.baseURL) candidates.push(s.baseURL)
   if (candidates.length === 0) throw new Error('未配置服务器地址')
 
-  const winner = await Promise.any(candidates.map(ping)).catch(() => null)
+  const winner = await promiseAny(candidates.map(ping)).catch(() => null)
   cachedBase = winner || s.baseURL || candidates[0]
   // 记录本次是否走 LAN，供设置页展示
   saveSettings({ usingLAN: !!winner && winner !== s.baseURL })
@@ -151,8 +165,9 @@ export function uploadInit(payload) {
  * @param {number} index
  * @param {Uint8Array} chunk
  */
-export function uploadChunk(sessionId, index, chunk) {
-  const base = cachedBase
+export async function uploadChunk(sessionId, index, chunk) {
+  // cachedBase 首次可能为空（例如调用前还没发过任何请求），兜底解析一次
+  const base = cachedBase || (await resolveBase())
   return new Promise((resolve, reject) => {
     uni.request({
       url: `${base}/api/v1/upload/chunk?session_id=${sessionId}&index=${index}`,

@@ -172,6 +172,7 @@ import * as api from '../../utils/api.js'
 import { pickFolder } from '../../utils/folderPicker.js'
 import { runAll, onStateChange, isRunning, STATE } from '../../sync/engine.js'
 import { deviceUUID, localDeviceId } from '../../utils/device.js'
+import { requestAlbumPermission } from '../../utils/permission.js'
 
 const SETTINGS_KEY = 'naspic.backupSettings'
 
@@ -195,7 +196,9 @@ const systemTask = reactive({
 })
 
 const libraries = ref([])
-const libNames = computed(() => libraries.value.map((l) => l.name || l.storage_root))
+// 第 0 项是「留空」哨兵：targetLibraryId=0 时后端按设备名自动建/找托管库
+const AUTO_LIB = { id: 0, name: '自动（按设备名建库，推荐）' }
+const libNames = computed(() => [AUTO_LIB.name].concat(libraries.value.map((l) => l.name || l.storage_root)))
 const running = ref(false)
 const progress = reactive({ done: 0, total: 0, synced: 0, failed: 0, skipped: 0 })
 const logs = ref([])
@@ -260,7 +263,8 @@ function saveTasksToStore() {
   store.saveTasks(all.map((t) => Object.assign({}, t, {
     id: t.id || hashId(t.folderUri),
     deviceId: localDeviceId(),
-    targetLibraryId: t.targetLibraryId || (libraries.value[0] && libraries.value[0].id) || 0,
+    // targetLibraryId 留 0：后端会根据 device_id 自动创建以设备名命名的托管库
+    targetLibraryId: t.targetLibraryId || 0,
   })))
 }
 
@@ -315,7 +319,7 @@ async function addFolder() {
       uploadOriginal: true,
       includeSubdir: true,
       fileTypes: ['image', 'video'],
-      targetLibraryId: (libraries.value[0] && libraries.value[0].id) || 0,
+      targetLibraryId: 0, // 留 0 → 后端按设备名自动建/找托管库，别默认塞第一个库
     })
     saveTasksToStore()
     syncServerTask(folders.value[folders.value.length - 1])
@@ -341,14 +345,18 @@ function removeFolder(i) {
   api.deleteSyncTask(f.id).catch(() => {})
 }
 function libIndex(f) {
-  return libraries.value.findIndex((l) => l.id === f.targetLibraryId)
+  if (!f.targetLibraryId) return 0
+  const i = libraries.value.findIndex((l) => l.id === f.targetLibraryId)
+  return i < 0 ? 0 : i + 1
 }
 function libName(f) {
+  if (!f.targetLibraryId) return AUTO_LIB.name
   const l = libraries.value.find((x) => x.id === f.targetLibraryId)
-  return l ? l.name : ''
+  return l ? l.name : AUTO_LIB.name
 }
 function pickLib(i, e) {
-  const lib = libraries.value[e.detail.value]
+  const idx = Number(e.detail.value) || 0
+  const lib = idx === 0 ? AUTO_LIB : libraries.value[idx - 1]
   if (lib) {
     folders.value[i].targetLibraryId = lib.id
     saveTasksToStore()
@@ -388,9 +396,44 @@ async function syncServerTask(t) {
 
 async function syncNow() {
   if (running.value) return
+  // 同步前再次确认相册权限（用户可能在系统设置中撤销了）
+  // #ifdef APP-PLUS
+  if (plus.os.name === 'Android') {
+    const ok = await requestAlbumPermission()
+    if (!ok) {
+      uni.showModal({
+        title: '缺少相册权限',
+        content: '请在系统设置中授予 Naspic 相册权限后再同步。',
+        confirmText: '去设置',
+        cancelText: '取消',
+        success: (r) => {
+          if (r.confirm) {
+            try {
+              const main = plus.android.runtimeMainActivity()
+              const Intent = plus.android.importClass('android.content.Intent')
+              const Settings = plus.android.importClass('android.provider.Settings')
+              const intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+              intent.setData(plus.android.importClass('android.net.Uri').parse('package:' + main.getPackageName()))
+              main.startActivity(intent)
+            } catch (e) { /* ignore */ }
+          }
+        },
+      })
+      return
+    }
+  }
+  // #endif
   running.value = true
   Object.assign(progress, { done: 0, total: 0, synced: 0, failed: 0, skipped: 0 })
   try {
+    // 确保任务已持久化（含 deviceId / id）
+    saveTasksToStore()
+
+    const tasks = store.getTasks().filter((t) => t.enabled)
+    console.log('[backup] 即将同步 ' + tasks.length + ' 个任务', JSON.stringify(tasks.map((t) => ({
+      id: t.id, lib: t.targetLibraryId, dev: t.deviceId, type: t.folderType, wifi: t.wifiOnly
+    }))))
+
     const r = await runAll()
     settings.lastSyncAt = Date.now()
     persist()
