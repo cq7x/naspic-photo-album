@@ -22,8 +22,6 @@ GO_VERSION="${GO_VERSION:-1.22}"
 NODE_VERSION="${NODE_VERSION:-20}"
 # 国内服务器建议设置：export NPM_REGISTRY=https://registry.npmmirror.com
 NPM_REGISTRY="${NPM_REGISTRY:-}"
-# 国内服务器建议设置：export APT_MIRROR=mirrors.aliyun.com（否则 deb.debian.org 可能只有几十 KB/s）
-APT_MIRROR="${APT_MIRROR:-}"
 
 echo ">>> 项目根目录: ${ROOT}"
 echo ">>> 镜像:       ${IMAGE}"
@@ -53,17 +51,17 @@ if [ "${CLEAN:-0}" = "1" ] || [ "${AVAIL_KB:-999999}" -lt 8388608 ]; then
 fi
 
 echo ">>> 开始构建（首次约 5~15 分钟，取决于网络和机器性能）"
+echo ">>> 完整日志写入 deploy/build.log，失败时把尾部贴给我即可"
 docker build \
   --build-arg VERSION="${VERSION}" \
   --build-arg TAGS="${TAGS}" \
   --build-arg GO_VERSION="${GO_VERSION}" \
   --build-arg NODE_VERSION="${NODE_VERSION}" \
   --build-arg NPM_REGISTRY="${NPM_REGISTRY}" \
-  --build-arg APT_MIRROR="${APT_MIRROR}" \
   -f deploy/Dockerfile \
   -t "${IMAGE}" \
   -t "${IMAGE%:*}:latest" \
-  .
+  . 2>&1 | tee "${ROOT}/deploy/build.log"
 
 echo
 echo ">>> 构建完成"

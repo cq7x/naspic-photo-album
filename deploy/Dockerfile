@@ -34,18 +34,13 @@ ARG TAGS=vips
 
 ENV DEBIAN_FRONTEND=noninteractive \
     GOPROXY=https://goproxy.cn,direct \
+    GOSUMDB=off \
+    GONOSUMCHECK=1 \
     CGO_ENABLED=1
 
-# 国内服务器可传 --build-arg APT_MIRROR=mirrors.aliyun.com 避免 deb.debian.org 龟速
-ARG APT_MIRROR=""
-RUN if [ -n "${APT_MIRROR}" ]; then \
-        if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
-            printf 'Types: deb\nURIs: http://%s/debian\nSuites: bookworm bookworm-updates\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n\nTypes: deb\nURIs: http://%s/debian-security\nSuites: bookworm-security\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n' "${APT_MIRROR}" "${APT_MIRROR}" > /etc/apt/sources.list.d/debian.sources; \
-        fi; \
-        if [ -f /etc/apt/sources.list ]; then \
-            sed -i "s|deb.debian.org|${APT_MIRROR}|g; s|security.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list; \
-        fi; \
-    fi
+# APT 源:清华 + 中科大双源(ARM64 上比 aliyun 覆盖更全、更快)
+RUN rm -f /etc/apt/sources.list \
+    && printf 'Types: deb\nURIs: http://mirrors.tuna.tsinghua.edu.cn/debian\nSuites: bookworm bookworm-updates\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n\nTypes: deb\nURIs: http://mirrors.ustc.edu.cn/debian\nSuites: bookworm bookworm-updates\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n\nTypes: deb\nURIs: http://mirrors.tuna.tsinghua.edu.cn/debian-security\nSuites: bookworm-security\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n\nTypes: deb\nURIs: http://mirrors.ustc.edu.cn/debian-security\nSuites: bookworm-security\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n' > /etc/apt/sources.list.d/debian.sources
 
 # libvips-dev 提供 vips 头文件与 pkg-config；build-essential 供 cgo 使用
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -70,15 +65,9 @@ RUN GOFLAGS=-mod=mod CGO_ENABLED=1 go build -tags "${TAGS}" \
 # ---------- 阶段 3：运行镜像 ----------
 FROM debian:bookworm-slim
 
-ARG APT_MIRROR=""
-RUN if [ -n "${APT_MIRROR}" ]; then \
-        if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
-            printf 'Types: deb\nURIs: http://%s/debian\nSuites: bookworm bookworm-updates\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n\nTypes: deb\nURIs: http://%s/debian-security\nSuites: bookworm-security\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n' "${APT_MIRROR}" "${APT_MIRROR}" > /etc/apt/sources.list.d/debian.sources; \
-        fi; \
-        if [ -f /etc/apt/sources.list ]; then \
-            sed -i "s|deb.debian.org|${APT_MIRROR}|g; s|security.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list; \
-        fi; \
-    fi
+# APT 源:清华 + 中科大双源(同 builder 阶段)
+RUN rm -f /etc/apt/sources.list \
+    && printf 'Types: deb\nURIs: http://mirrors.tuna.tsinghua.edu.cn/debian\nSuites: bookworm bookworm-updates\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n\nTypes: deb\nURIs: http://mirrors.ustc.edu.cn/debian\nSuites: bookworm bookworm-updates\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n\nTypes: deb\nURIs: http://mirrors.tuna.tsinghua.edu.cn/debian-security\nSuites: bookworm-security\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n\nTypes: deb\nURIs: http://mirrors.ustc.edu.cn/debian-security\nSuites: bookworm-security\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n' > /etc/apt/sources.list.d/debian.sources
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ=Asia/Shanghai \
