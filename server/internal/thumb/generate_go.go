@@ -1,5 +1,3 @@
-//go:build !vips
-
 package thumb
 
 import (
@@ -17,9 +15,10 @@ import (
 	"golang.org/x/image/draw"
 )
 
-// goGenerator 纯 Go 降级后端（无 libvips 时使用）
-// 限制：不支持 HEIC / RAW；WebP 只能解码不能编码（自动降级输出 JPEG）
-func init() { defaultGenerator = &goGenerator{} }
+// goGenerator 纯 Go 降级后端（libvips 不可用 / 导出失败时兜底）
+// 限制：不支持 HEIC / RAW；WebP 只能解码不能编码（自动降级输出 JPEG）。
+// 不依赖任何 C 库，绝对可用，是「vips 优先、纯 Go 兜底」的最终保险。
+func init() { goGen = &goGenerator{} }
 
 type goGenerator struct{}
 

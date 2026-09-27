@@ -84,6 +84,29 @@
 
 ---
 
+## v1.8.7 — 修复缩略图全 500（vips 导出失效 → 纯 Go 兜底 + 默认 JPEG）
+
+> 现象：Web 端照片列表/预览图全挂，缩略图接口统一 500 `缩略图不可用`。
+> 根因：本运行环境的 libvips 8.14.1 与 govips v2.14.0 版本错配，**缩略图导出整体失效**
+> （`ExportJpeg`/`ExportWebp` 均报 `vipspng: libpng read error`，是 vips 没清掉的上一条
+> 错误串，真正失败点是导出层）。源文件读取正常，卡在导出，与之前「全零损坏文件」无关。
+> 默认缩略图格式是 webp，纯 Go 后端只输出 JPEG，二者后缀/内容还会错配。
+
+### 服务端
+
+1. **双后端同时编译 + 运行时回落后端**：去掉 `generate_vips.go` / `generate_go.go` 的
+   `//go:build` 标签，两个后端都编进二进制；`thumb.New` 组装成「vips 优先、纯 Go 兜底」。
+2. **vips 首次失败即永久禁用**：避免每个缩略图都重复踩坑拖慢列表并刷错误日志。
+3. **缩略图默认格式改为 JPEG**：webp 的带宽收益对缩略图微不足道，却引入脆弱性；
+   JPEG 在所有后端（含纯 Go）都稳。配置 `thumb.format` 默认 `jpeg`，示例配置同步更新。
+
+### 影响说明
+
+- 纯 Go 后端不支持 HEIC/RAW（iPhone 实拍多为 HEIC）；本环境 vips 已失效，故 HEIC 暂不能出缩略图。
+  华为等 Android 相机默认 JPEG，不受影响。后续若需 HEIC，需修复 libvips 运行环境再切回 vips 后端。
+
+---
+
 ## v1.8.3 — 修复上传撞唯一键导致整批失败（1062）
 
 > 根因来自服务器日志：`uploadComplete` 入库时撞 `media_files.uk_media_lib_path`

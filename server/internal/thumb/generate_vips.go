@@ -1,5 +1,3 @@
-//go:build vips
-
 package thumb
 
 import (
@@ -8,16 +6,17 @@ import (
 	"github.com/davidbyttow/govips/v2/vips"
 )
 
-// vipsGenerator 基于 libvips 的缩略图后端（推荐，ARM 友好）
-// 编译：CGO_ENABLED=1 go build -tags vips
+// vipsGenerator 基于 libvips 的缩略图后端（推荐，ARM 友好，支持 HEIC 等）；
+// 与 generate_go.go 同时编译，由 thumb.New 组装成「vips 优先、纯 Go 兜底」的回落后端。
+// 编译：CGO_ENABLED=1（需要 libvips 开发头文件与运行时库）。
 func init() {
-	defaultGenerator = &vipsGenerator{}
 	vips.LoggingSettings(nil, vips.LogLevelError)
 	vips.Startup(&vips.Config{
 		ConcurrencyLevel: 1, // ARM 低配：libvips 内部线程数也压到 1
 		MaxCacheFiles:    0,
 		MaxCacheMem:      32 << 20,
 	})
+	vipsGen = &vipsGenerator{}
 }
 
 type vipsGenerator struct{}

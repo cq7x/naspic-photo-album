@@ -46,7 +46,7 @@ thumb:
   queue_size: 256
   sizes: "256,512,1080"
   quality: 82
-  format: webp
+  format: jpeg                      # jpeg（稳妥，全后端通用）| webp（仅 vips 正常时更小）
 
 ai:
   enabled: false                   # 低配 ARM 建议关闭

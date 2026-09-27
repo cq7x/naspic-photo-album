@@ -17,6 +17,7 @@ import (
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	"sync/atomic"
 
 	"github.com/naspic/naspic/internal/config"
 	"github.com/naspic/naspic/internal/model"
@@ -52,8 +53,37 @@ type Generator interface {
 	Generate(src, dst string, size int, quality int, format string) error
 }
 
-// 由 generate_vips.go / generate_go.go 按 build tag 注入
-var defaultGenerator Generator
+// 由 generate_vips.go / generate_go.go 在 init() 中分别注入（两者同时编译）
+var vipsGen Generator
+var goGen Generator
+
+// fallbackGenerator 先试 primary（vips），失败一次后永久切到 secondary（纯 Go）。
+// 目的：vips 在部分运行环境会因 libvips/govips 版本错配导致导出整体失效，
+// 此时自动回落到不依赖任何 C 库的纯 Go 后端，保证缩略图一定可用；
+// 首次失败即禁用 primary，避免每个缩略图都重复踩坑并刷错误日志。
+type fallbackGenerator struct {
+	primary  Generator
+	secondary Generator
+	disabled atomic.Bool
+}
+
+func (g *fallbackGenerator) Name() string {
+	if g.disabled.Load() {
+		return "go(fallback)"
+	}
+	return g.primary.Name()
+}
+
+func (g *fallbackGenerator) Generate(src, dst string, size, quality int, format string) error {
+	if !g.disabled.Load() {
+		if err := g.primary.Generate(src, dst, size, quality, format); err == nil {
+			return nil
+		}
+		g.disabled.Store(true)
+		log.Printf("[thumb] 主后端(%s)缩略图生成失败，已永久切到纯 Go 兜底后端", g.primary.Name())
+	}
+	return g.secondary.Generate(src, dst, size, quality, format)
+}
 
 // SizeKey 尺寸规格 → 像素
 var sizes = map[storage.ThumbSize]int{
@@ -92,7 +122,7 @@ func New(db *gorm.DB, cfg *config.Config) *Service {
 		cfg.Thumb.Quality = 82
 	}
 	if cfg.Thumb.Format == "" {
-		cfg.Thumb.Format = "webp"
+		cfg.Thumb.Format = "jpeg"
 	}
 	// 自定义尺寸：thumb.sizes = "256,512,1080"
 	if s := cfg.Thumb.Sizes; s != "" {
@@ -106,10 +136,23 @@ func New(db *gorm.DB, cfg *config.Config) *Service {
 		}
 	}
 
+	// 组装缩略图后端：vips 与 纯 Go 同时注入时，做成「vips 优先、纯 Go 兜底」回落后端；
+	// 否则用仅有的那个；都没有则 nilGenerator（保证服务不崩）。
+	var gen Generator
+	switch {
+	case vipsGen != nil && goGen != nil:
+		gen = &fallbackGenerator{primary: vipsGen, secondary: goGen}
+	case vipsGen != nil:
+		gen = vipsGen
+	case goGen != nil:
+		gen = goGen
+	default:
+		gen = &nilGenerator{}
+	}
 	s := &Service{
 		db:   db,
 		cfg:  cfg,
-		gen:  defaultGenerator,
+		gen:  gen,
 		busy: make(map[string]chan struct{}),
 		genQ: make(chan genTask, cfg.Thumb.QueueSize),
 	}
