@@ -19,29 +19,79 @@ function readRange(path, start, len) {
   return new Promise((resolve, reject) => {
     // #ifdef APP-PLUS
     try {
-      plus.io.resolveLocalFileSystemURL(
-        path,
-        (entry) => {
-          entry.file(
-            (file) => {
-              const reader = new plus.io.FileReader()
-              reader.onloadend = (e) => {
-                const ab = e.target && e.target.result
-                resolve(new Uint8Array(ab || new ArrayBuffer(0)))
-              }
-              reader.onerror = (e) => reject(new Error('读取失败: ' + (e && e.message)))
-              const end = Math.min(start + len, file.size)
-              reader.readAsArrayBuffer(file.slice(start, end))
-            },
-            (e) => reject(new Error('打开文件失败'))
-          )
-        },
-        (e) => reject(new Error('路径无效: ' + path))
-      )
-      return
+      // 把 file:// 前缀去掉，用 Java FileInputStream 直接读取（plus.io 回调不稳定）
+      let realPath = path
+      if (realPath.indexOf('file://') === 0) realPath = realPath.slice(7)
+
+      // SAF content:// URI：用 ContentResolver + ParcelFileDescriptor 读取
+      if (path.indexOf('content://') === 0) {
+        const main = plus.android.runtimeMainActivity()
+        const Uri = plus.android.importClass('android.net.Uri')
+        const ReflectArray = plus.android.importClass('java.lang.reflect.Array')
+        const Byte = plus.android.importClass('java.lang.Byte')
+        const resolver = plus.android.invoke(main, 'getContentResolver')
+        const uri = Uri.parse(path)
+        const pfd = plus.android.invoke(resolver, 'openFileDescriptor', uri, 'r')
+        if (!pfd) return reject(new Error('无法打开 SAF 文件'))
+        const size = plus.android.invoke(pfd, 'getStatSize')
+        const end = Math.min(start + len, size)
+        const count = end - start
+        const FileInputStream = plus.android.importClass('java.io.FileInputStream')
+        const fd = plus.android.invoke(pfd, 'getFileDescriptor')
+        const fis = new FileInputStream(fd)
+        if (start > 0) plus.android.invoke(fis, 'skip', start)
+        const jbuf = plus.android.invoke(ReflectArray, 'newInstance', Byte.TYPE, count)
+        let offset = 0
+        while (offset < count) {
+          const n = plus.android.invoke(fis, 'read', jbuf, offset, count - offset)
+          if (n <= 0) break
+          offset += n
+        }
+        plus.android.invoke(fis, 'close')
+        plus.android.invoke(pfd, 'close')
+        const out = new Uint8Array(count)
+        for (let i = 0; i < count; i++) {
+          out[i] = plus.android.invoke(ReflectArray, 'getByte', jbuf, i) & 0xff
+        }
+        resolve(out)
+        return
+      }
+
+      // 本地文件路径：直接用 Java FileInputStream（同步调用，避免 plus.io 回调不触发）
+      const File = plus.android.importClass('java.io.File')
+      const FileInputStream = plus.android.importClass('java.io.FileInputStream')
+      const ReflectArray = plus.android.importClass('java.lang.reflect.Array')
+      const Byte = plus.android.importClass('java.lang.Byte')
+
+      const f = new File(realPath)
+      if (!plus.android.invoke(f, 'exists')) {
+        return reject(new Error('文件不存在: ' + realPath))
+      }
+      const fileSize = plus.android.invoke(f, 'length')
+      const end = Math.min(start + len, fileSize)
+      const count = end - start
+      if (count <= 0) {
+        resolve(new Uint8Array(0))
+        return
+      }
+
+      const fis = new FileInputStream(f)
+      if (start > 0) plus.android.invoke(fis, 'skip', start)
+      const jbuf = plus.android.invoke(ReflectArray, 'newInstance', Byte.TYPE, count)
+      let offset = 0
+      while (offset < count) {
+        const n = plus.android.invoke(fis, 'read', jbuf, offset, count - offset)
+        if (n <= 0) break
+        offset += n
+      }
+      plus.android.invoke(fis, 'close')
+      const out = new Uint8Array(count)
+      for (let i = 0; i < count; i++) {
+        out[i] = plus.android.invoke(ReflectArray, 'getByte', jbuf, i) & 0xff
+      }
+      resolve(out)
     } catch (err) {
       reject(err)
-      return
     }
     // #endif
 
@@ -56,11 +106,31 @@ function readRange(path, start, len) {
 
 /** 获取文件大小 */
 export function fileSize(path) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     // #ifdef APP-PLUS
-    plus.io.resolveLocalFileSystemURL(path, (entry) => {
-      entry.file((file) => resolve(file.size), () => resolve(0))
-    }, () => resolve(0))
+    try {
+      // SAF content:// URI
+      if (path.indexOf('content://') === 0) {
+        const main = plus.android.runtimeMainActivity()
+        const Uri = plus.android.importClass('android.net.Uri')
+        const resolver = plus.android.invoke(main, 'getContentResolver')
+        const pfd = plus.android.invoke(resolver, 'openFileDescriptor', Uri.parse(path), 'r')
+        if (!pfd) return resolve(0)
+        const size = plus.android.invoke(pfd, 'getStatSize')
+        plus.android.invoke(pfd, 'close')
+        resolve(size || 0)
+        return
+      }
+      // 本地文件：用 Java File.length() 直接获取
+      let realPath = path
+      if (realPath.indexOf('file://') === 0) realPath = realPath.slice(7)
+      const File = plus.android.importClass('java.io.File')
+      const f = new File(realPath)
+      if (!plus.android.invoke(f, 'exists')) return resolve(0)
+      resolve(plus.android.invoke(f, 'length') || 0)
+    } catch (e) {
+      resolve(0)
+    }
     // #endif
     // #ifndef APP-PLUS
     resolve(0)

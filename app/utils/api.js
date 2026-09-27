@@ -5,6 +5,7 @@
  *  2. 统一错误处理与 token 注入
  */
 import { sha256Text } from './sha256.js'
+import { triggerRelogin } from './session.js'
 
 const KEY = 'naspic.settings'
 
@@ -92,6 +93,8 @@ export class AuthError extends Error {
 function onUnauthorized(msg) {
   try { uni.removeStorageSync('naspic.token') } catch (e) { /* ignore */ }
   try { uni.$emit && uni.$emit('naspic:unauthorized') } catch (e) { /* ignore */ }
+  // 全局重新登录弹窗（App 启动 / 同步中 401 都会走到这里）
+  try { triggerRelogin() } catch (e) { /* ignore */ }
   return new AuthError(msg || '登录已过期，请重新登录')
 }
 
@@ -133,7 +136,7 @@ async function request(path, options = {}) {
 // ---------- 认证 ----------
 
 export function login(baseURL, username, password) {
-  saveSettings({ baseURL })
+  saveSettings({ baseURL, username })
   cachedBase = null
   return new Promise((resolve, reject) => {
     uni.request({

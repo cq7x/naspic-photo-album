@@ -63,7 +63,7 @@ export function sha256(bytes) {
 
 /** 字符串哈希（用于路径 key 等短文本） */
 export function sha256Text(str) {
-  const enc = new TextEncoder ? new TextEncoder().encode(str) : strToUtf8(str)
+  const enc = (typeof TextEncoder !== 'undefined') ? new TextEncoder().encode(str) : strToUtf8(str)
   return sha256(enc)
 }
 

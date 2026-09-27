@@ -1,5 +1,11 @@
 <template>
   <view class="page">
+    <!-- 头部标题 -->
+    <view class="header">
+      <text class="h-title">自动备份</text>
+      <text class="h-sub">照片与视频自动同步到私有云</text>
+    </view>
+
     <!-- ============ 总开关 ============ -->
     <view class="card">
       <view class="row">
@@ -121,6 +127,13 @@
       <view class="progress" v-if="running">
         <view class="bar"><view class="bar-inner" :style="{ width: percent + '%' }" /></view>
         <text class="desc">{{ progress.done }}/{{ progress.total }} · 成功 {{ progress.synced }} · 失败 {{ progress.failed }}</text>
+      </view>
+
+      <view class="stats" v-if="!running">
+        <view class="stat"><text class="stat-n">{{ progress.synced || 0 }}</text><text class="stat-l">已同步</text></view>
+        <view class="stat"><text class="stat-n">{{ failCount || 0 }}</text><text class="stat-l">失败</text></view>
+        <view class="stat"><text class="stat-n">{{ progress.skipped || 0 }}</text><text class="stat-l">跳过</text></view>
+        <view class="stat"><text class="stat-n">{{ lastSyncText }}</text><text class="stat-l">上次同步</text></view>
       </view>
 
       <view class="sub">
@@ -262,15 +275,10 @@ onMounted(async () => {
 })
 
 function onSessionExpired() {
+  // UI 由全局 ReLoginModal 弹窗统一接管，这里只做同步收尾与状态复位
   stopSync()
   running.value = false
   stopping.value = false
-  uni.showModal({
-    title: '登录已过期',
-    content: '服务端令牌失效了（一般是服务器重启或重新部署导致）。请到「我的」重新登录后再次同步。',
-    showCancel: false,
-    confirmText: '知道了',
-  })
 }
 
 /** 主按钮：同步中 → 停止；空闲 → 开始同步 */
@@ -555,6 +563,9 @@ function guideBattery() {
 
 <style scoped>
 .page { padding: 20rpx; padding-bottom: 60rpx; }
+.header { padding: 16rpx 12rpx 8rpx; }
+.h-title { font-size: 38rpx; font-weight: 700; color: #303133; display: block; }
+.h-sub { font-size: 24rpx; color: #909399; margin-top: 4rpx; display: block; }
 .card {
   background: #fff; border-radius: 16rpx; padding: 24rpx; margin-bottom: 20rpx;
 }
@@ -579,6 +590,10 @@ function guideBattery() {
 .progress { padding: 12rpx 0; }
 .bar { height: 10rpx; background: #ebeef5; border-radius: 6rpx; overflow: hidden; }
 .bar-inner { height: 100%; background: #2979ff; transition: width .2s; }
+.stats { display: flex; margin-top: 12rpx; border-top: 1rpx solid #f2f3f5; padding-top: 16rpx; }
+.stat { flex: 1; display: flex; flex-direction: column; align-items: center; }
+.stat-n { font-size: 28rpx; font-weight: 700; color: #303133; }
+.stat-l { font-size: 22rpx; color: #909399; margin-top: 4rpx; }
 .btn {
   font-size: 26rpx; padding: 0 28rpx; height: 64rpx; line-height: 64rpx;
   background: #2979ff; color: #fff; border-radius: 32rpx;
