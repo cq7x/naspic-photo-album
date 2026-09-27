@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -298,6 +299,20 @@ func (s *Server) uploadComplete(c *gin.Context) {
 		return
 	}
 
+	// 内容魔数校验：扩展名声称是图片/视频，但文件头对不上 → 拒绝入库。
+	// 典型场景：App 端读文件损坏（如 plus.android 桥接 bug 读出全零流），
+	// 哈希和大小都「自洽」，只有魔数能识破。没有这道关，垃圾会进库且缩略图全部 500。
+	cName := req.Filename
+	if cName == "" {
+		cName = "merged.bin"
+	}
+	if !checkContentMagic(merged, filepath.Ext(cName)) {
+		_ = os.Remove(merged)
+		_ = os.RemoveAll(sess.TmpDir)
+		fail(c, 400, "文件内容校验失败：内容与文件格式不符（常见原因是 App 端读取文件损坏，请升级 App 后重新同步）")
+		return
+	}
+
 	// 2. 秒传：合并后再次确认（避免并发重复上传）
 	//    这里用 dbHash（与扫描同源），保证和后续扫描得到的 hash 一致，否则重扫会重复入库
 	var existMedia model.MediaFile
@@ -380,23 +395,32 @@ func (s *Server) uploadComplete(c *gin.Context) {
 	}
 
 	// 5. 幂等保护：按「库 + 相对路径」查是否已有同路径记录，避免撞 uk_media_lib_path 唯一键 → 500。
-	//    典型场景：旧版本哈希算法不同导致 uploadCheck 误判「未存在」、或容器重建后原文件丢失但 DB 行还在
-	//    （re-upload 会撞唯一键）。统一按「已存在」处理：
-	//      - 文件仍在磁盘 → 直接秒传返回（Overwrite:false 会写成 `xxx (1).jpg` 孤儿，删掉即可）；
-	//      - 文件已丢失（本次覆盖写回成功）→ 用新内容更新该行，恢复 web 预览。
+	//    注意必须 Unscoped（含软删除）：唯一键不含 deleted_at，软删行同样占用键位；
+	//    只查存活行会漏判 → INSERT 撞 1062 → 500（v1.8.3 的坑）。
 	var existMF model.MediaFile
 	foundDup := false
 	for _, rp := range []string{relPath, res.RelPath} {
 		if rp == "" {
 			continue
 		}
-		if err := s.db.Where("library_id = ? AND relative_path = ? AND deleted_at IS NULL",
-			sess.LibraryID, rp).First(&existMF).Error; err == nil {
+		if err := s.db.Unscoped().
+			Where("library_id = ? AND relative_path = ?", sess.LibraryID, rp).
+			First(&existMF).Error; err == nil {
 			foundDup = true
 			break
 		}
 	}
 	if foundDup {
+		// 软删除的记录 = 用户此前在网页端删过该文件：尊重删除，丢弃本次上传
+		//（文件在盘上必然是本次新写的或 renamed 孤儿，删掉不损失任何数据）
+		if existMF.DeletedAt != nil {
+			_ = os.Remove(res.AbsPath)
+			_ = os.RemoveAll(sess.TmpDir)
+			s.db.Model(&model.UploadSession{}).Where("id = ?", sess.ID).
+				Updates(map[string]any{"status": 1, "relative_path": relPath, "updated_at": time.Now()})
+			ok(c, gin.H{"media_id": existMF.ID, "dedup": true, "deleted": true, "path": relPath})
+			return
+		}
 		if res.Renamed {
 			// 写成了 `xxx (1).jpg` 孤儿，原文件还在磁盘，删掉孤儿、返回原行
 			_ = os.Remove(res.AbsPath)
@@ -424,6 +448,37 @@ func (s *Server) uploadComplete(c *gin.Context) {
 	}
 
 	if err := s.db.Create(&mf).Error; err != nil {
+		if isDuplicateKey(err) {
+			// 兜底：并发上传或软删行占键撞 uk_media_lib_path，按已存在处理而非 500
+			var dup model.MediaFile
+			if e := s.db.Unscoped().
+				Where("library_id = ? AND relative_path = ?", sess.LibraryID, res.RelPath).
+				Order("id DESC").First(&dup).Error; e == nil {
+				if dup.DeletedAt != nil {
+					_ = os.Remove(res.AbsPath)
+					_ = os.RemoveAll(sess.TmpDir)
+					s.db.Model(&model.UploadSession{}).Where("id = ?", sess.ID).
+						Updates(map[string]any{"status": 1, "relative_path": relPath, "updated_at": time.Now()})
+					ok(c, gin.H{"media_id": dup.ID, "dedup": true, "deleted": true, "path": relPath})
+					return
+				}
+				// 存活行：文件丢失时本次已覆盖写回 → 修正该行恢复预览；renamed 孤儿删掉
+				if res.Renamed {
+					_ = os.Remove(res.AbsPath)
+				} else {
+					s.db.Model(&model.MediaFile{}).Where("id = ?", dup.ID).Updates(map[string]any{
+						"hash": dbHash, "hash_algo": dbAlgo, "size_bytes": res.Size,
+						"mime": detectMime(res.AbsPath), "updated_at": time.Now(),
+					})
+				}
+				_ = os.RemoveAll(sess.TmpDir)
+				s.db.Model(&model.UploadSession{}).Where("id = ?", sess.ID).
+					Updates(map[string]any{"status": 1, "relative_path": relPath, "updated_at": time.Now()})
+				s.invalidate(cache.PfxMedia)
+				ok(c, gin.H{"media_id": dup.ID, "dedup": true, "restored": !res.Renamed, "path": relPath})
+				return
+			}
+		}
 		fail(c, 500, "入库失败: "+err.Error())
 		return
 	}
@@ -456,6 +511,37 @@ func detectMime(path string) string {
 		return mt.String()
 	}
 	return "application/octet-stream"
+}
+
+// checkContentMagic 校验文件内容魔数与扩展名是否相符。
+// 背景：App 端 plus.android 桥接读大文件曾产出「全零流」，哈希与大小都自洽，
+// 只有文件头能识破（vips 报 unsupported image format、缩略图全部 500）。
+// 未知扩展名不校验；打不开文件也交给后续流程报错。
+func checkContentMagic(path, ext string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return true
+	}
+	defer f.Close()
+	head := make([]byte, 16)
+	n, _ := io.ReadFull(f, head)
+	head = head[:n]
+	switch strings.ToLower(ext) {
+	case ".jpg", ".jpeg":
+		return len(head) >= 3 && head[0] == 0xFF && head[1] == 0xD8 && head[2] == 0xFF
+	case ".png":
+		return bytes.HasPrefix(head, []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A})
+	case ".gif":
+		return bytes.HasPrefix(head, []byte("GIF8"))
+	case ".webp":
+		return len(head) >= 12 && bytes.HasPrefix(head, []byte("RIFF")) && bytes.Equal(head[8:12], []byte("WEBP"))
+	case ".heic", ".heif", ".hif", ".mp4", ".mov", ".m4v":
+		return len(head) >= 12 && bytes.Equal(head[4:8], []byte("ftyp"))
+	case ".bmp":
+		return bytes.HasPrefix(head, []byte("BM"))
+	default:
+		return true
+	}
 }
 
 // shortHash 取哈希前 8 位用于日志/报错展示（不足则不截断）

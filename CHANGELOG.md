@@ -4,6 +4,38 @@
 
 ---
 
+## v1.8.4 — 修复 App 上传全零文件（缩略图全 500）+ 软删行占键 500
+
+> 服务器日志 + 数学实锤：库里 `ab60dc92…` 恰好等于 `sha256(全零文件)`，
+> 手机 App 读出的就是「长度精确的全零流」，哈希/大小校验全部自洽，唯独 vips 认不出
+> （缩略图接口统一 500 `unsupported image format`，网页缩略图全挂）。
+> 次生问题：268 条软删除记录占用 `uk_media_lib_path` 唯一键（键不含 deleted_at），
+> 重传撞键 500。
+
+### 服务端
+
+1. **新增内容魔数校验 `checkContentMagic`**：合并落盘前校验文件头与扩展名相符
+   （JPEG/PNG/GIF/WebP/HEIC/MP4/BMP），不符直接 400 拒绝入库——任何客户端读取
+   损坏（如全零流）都进不了库。
+2. **判重改 Unscoped**：`uploadComplete` 按「库+路径」判重时包含软删除行
+   （唯一键不含 deleted_at，软删行同样占键）；
+   - 撞软删行 → 尊重用户删除，丢弃本次上传返回 `dedup+deleted`，不再 500；
+   - 撞存活行 → 沿用秒传/覆盖恢复逻辑。
+3. **`Create` 撞键兜底**：并发竞态等残余 1062 场景按幂等处理（isDuplicateKey + Unscoped 查询）。
+
+### App 端（v1.3 / versionCode 103）
+
+4. **重写 `app/utils/hash.js` 的 `readRange`**：弃用「invoke 填 Java 数组 + 逐字节 getByte」
+   （桥接对大数组不可靠，失败即静默产出全零），改为 **256KB 分块 → Java 端 Base64 编码
+   → 字符串过桥 → JS 解码**；skip 少跳用空读兜底；任何读失败直接 reject 报错，
+   绝不静默返回全零。SAF content:// 与本地路径统一走同一实现。
+
+### 运维
+
+- 已将服务器上已入库的全零文件及其 DB 行做一次性清理，升级 App 后重新同步即可全量重传真实文件。
+
+---
+
 ## v1.8.3 — 修复上传撞唯一键导致整批失败（1062）
 
 > 根因来自服务器日志：`uploadComplete` 入库时撞 `media_files.uk_media_lib_path`
