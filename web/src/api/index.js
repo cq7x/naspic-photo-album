@@ -121,6 +121,26 @@ export const uploadWeb = (libraryId, files, onProgress, opts) => {
   })
 }
 
+// ---------- 分片上传（大文件，支持断点续传）----------
+// check: 秒传探测 + 断点续传检测
+export const uploadCheck = (libraryId, hash, size, filename) =>
+  http.post('/upload/check', { library_id: libraryId, hash, size, filename })
+
+// init: 创建上传会话
+export const uploadInit = (data) => http.post('/upload/init', data)
+
+// chunk: 上传单个分片（body 为原始字节）
+export const uploadChunk = (sessionId, index, blob, opts) =>
+  http.put(
+    `/upload/chunk?session_id=${encodeURIComponent(sessionId)}&index=${index}`,
+    blob,
+    { headers: { 'Content-Type': 'application/octet-stream' }, timeout: 0, ...(opts || {}) }
+  )
+
+// complete: 合并分片、校验哈希、入库
+export const uploadComplete = (sessionId, filename) =>
+  http.post('/upload/complete', { session_id: sessionId, filename })
+
 // ---------- 补采拍摄时间（历史视频用 mtime 排序不准，跑 ffprobe 读容器时间） ----------
 export const refreshTaken = (libraryId) =>
   http.post('/media/refresh-taken', { library_id: libraryId || 0 })
@@ -157,6 +177,8 @@ export const createGroup = (data) => http.post('/groups', data)
 
 // ---------- 手机同步 ----------
 export const listDevices = () => http.get('/sync/devices')
+export const ensureDeviceLibrary = (id) =>
+  http.post(`/sync/devices/${id}/ensure-library`)
 export const listSyncTasks = (deviceId) =>
   http.get('/sync/tasks', { params: { device_id: deviceId } })
 export const upsertSyncTask = (data) => http.put('/sync/tasks', data)

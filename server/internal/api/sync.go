@@ -170,6 +170,56 @@ func (s *Server) deleteSyncTask(c *gin.Context) {
 	ok(c, gin.H{"id": id})
 }
 
+// ensureDeviceLibraryHandler 为指定设备查找或创建以设备名命名的托管库。
+// 供 web 端「链接检查」按钮调用：当 web 端还没有该手机的存储库时，先新建一个，
+// 这样 App 端同步（target_library_id=0 自动建库模式）就能落进正确的库。
+func (s *Server) ensureDeviceLibraryHandler(c *gin.Context) {
+	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	if id == 0 {
+		fail(c, http.StatusBadRequest, "device_id 必填")
+		return
+	}
+	before, _ := s.deviceLibraryID(id)
+	libID, err := s.ensureDeviceLibrary(c, id)
+	if err != nil {
+		fail(c, 500, "创建设备存储库失败: "+err.Error())
+		return
+	}
+	var lib model.Library
+	if err := s.db.First(&lib, libID).Error; err != nil {
+		fail(c, 500, "库已创建但查询失败: "+err.Error())
+		return
+	}
+	created := before == 0
+	ok(c, gin.H{
+		"device_id":   id,
+		"library_id":  libID,
+		"library":     lib,
+		"name":        lib.Name,
+		"storage_root": lib.StorageRoot,
+		"created":     created,
+	})
+}
+
+// deviceLibraryID 返回设备名对应的已存在托管库 id（不存在返回 0）。
+func (s *Server) deviceLibraryID(deviceID int64) (int64, error) {
+	var dev model.SyncDevice
+	if err := s.db.First(&dev, deviceID).Error; err != nil {
+		return 0, err
+	}
+	libName := dev.DeviceName
+	if libName == "" {
+		libName = "Device-" + strconv.FormatInt(deviceID, 10)
+	}
+	var lib model.Library
+	err := s.db.Where("name = ? AND type = ? AND deleted_at IS NULL", libName, model.LibraryTypeManaged).
+		First(&lib).Error
+	if err != nil {
+		return 0, err
+	}
+	return lib.ID, nil
+}
+
 // listSyncRecords 单文件同步记录（供 APP 查询失败列表 / 断点续传状态）
 func (s *Server) listSyncRecords(c *gin.Context) {
 	taskID, _ := strconv.ParseInt(c.Param("id"), 10, 64)

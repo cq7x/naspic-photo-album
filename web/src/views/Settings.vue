@@ -101,6 +101,117 @@
       </el-card>
     </div>
 
+    <!-- ================= 手机同步设备 ================= -->
+    <div v-show="tab === 'devices'" class="pane">
+      <el-card shadow="never" class="mb">
+        <template #header>
+          <div class="card-head">
+            <span class="sec-ic"><AppIcon name="phone" :size="16" /></span>
+            <b>已连接设备</b>
+            <span class="np-muted">{{ devices.length }} 台</span>
+            <div class="np-flex1" />
+            <button class="btn ghost sm" :disabled="dLoading || !devices.length" @click="checkAllLinks">
+              <AppIcon name="sync" :size="14" /> 检查全部链接
+            </button>
+            <button class="btn ghost sm" @click="loadDevices">
+              <AppIcon name="refresh" :size="14" /> 刷新
+            </button>
+          </div>
+        </template>
+
+        <el-table :data="devices" v-loading="dLoading" size="small" border>
+          <el-table-column label="设备名" min-width="160">
+            <template #default="{ row }">{{ row.device_name || ('设备 ' + row.id) }}</template>
+          </el-table-column>
+          <el-table-column label="平台" width="90">
+            <template #default="{ row }">{{ row.platform === 2 ? 'iOS' : 'Android' }}</template>
+          </el-table-column>
+          <el-table-column label="版本" width="100">
+            <template #default="{ row }">{{ row.app_version || '-' }}</template>
+          </el-table-column>
+          <el-table-column label="最近 IP" width="160">
+            <template #default="{ row }">{{ row.last_ip || '-' }}</template>
+          </el-table-column>
+          <el-table-column label="最后在线" min-width="160">
+            <template #default="{ row }">{{ fmtTime(row.last_seen_at) }}</template>
+          </el-table-column>
+          <el-table-column label="存储库 / 链接" min-width="230">
+            <template #default="{ row }">
+              <el-tag v-if="linkedLibOf(row)" type="success" size="small">
+                已链接：{{ linkedLibOf(row).name }}
+              </el-tag>
+              <el-tag v-else type="warning" size="small">未创建存储库</el-tag>
+              <el-button link type="primary" size="small" :loading="linkBusy[row.id]"
+                @click="checkLink(row)">
+                {{ linkedLibOf(row) ? '检查 / 修复' : '新建存储库' }}
+              </el-button>
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" width="90">
+            <template #default="{ row }">
+              <el-tag :type="row.status === 1 ? 'success' : 'info'" size="small">
+                {{ row.status === 1 ? '正常' : '已吊销' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-card>
+
+      <el-card shadow="never">
+        <template #header>
+          <div class="card-head">
+            <span class="sec-ic"><AppIcon name="sync" :size="16" /></span>
+            <b>同步任务</b>
+            <span class="np-muted">{{ syncTasks.length }} 个</span>
+          </div>
+        </template>
+
+        <el-table :data="syncTasks" v-loading="tLoading" size="small" border>
+          <el-table-column label="设备" min-width="140">
+            <template #default="{ row }">
+              {{ deviceNameOf(row.device_id) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="文件夹" min-width="160">
+            <template #default="{ row }">{{ row.folder_path || row.folder_uri }}</template>
+          </el-table-column>
+          <el-table-column label="目标库" min-width="140">
+            <template #default="{ row }">{{ libraryNameOf(row.target_library_id) }}</template>
+          </el-table-column>
+          <el-table-column label="状态" width="100">
+            <template #default="{ row }">
+              <el-tag :type="taskStatusType(row.status)" size="small">{{ taskStatusText(row.status) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="进度" min-width="200">
+            <template #default="{ row }">
+              <el-progress :percentage="taskPercent(row)" :stroke-width="6"
+                :status="row.status === 3 ? 'exception' : ''" />
+            </template>
+          </el-table-column>
+          <el-table-column label="总数" width="80">
+            <template #default="{ row }">{{ row.total_count || 0 }}</template>
+          </el-table-column>
+          <el-table-column label="已同步" width="80">
+            <template #default="{ row }">{{ row.synced_count || 0 }}</template>
+          </el-table-column>
+          <el-table-column label="失败" width="70">
+            <template #default="{ row }">
+              <span :style="{ color: (row.failed_count || 0) > 0 ? '#f56c6c' : '' }">
+                {{ row.failed_count || 0 }}
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column label="跳过" width="70">
+            <template #default="{ row }">{{ row.skipped_count || 0 }}</template>
+          </el-table-column>
+          <el-table-column label="最近同步" min-width="160">
+            <template #default="{ row }">{{ fmtTime(row.last_sync_at) }}</template>
+          </el-table-column>
+        </el-table>
+      </el-card>
+    </div>
+
     <!-- ================= 关于 ================= -->
     <div v-show="tab === 'about'" class="pane">
       <el-card shadow="never">
@@ -179,7 +290,7 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AppIcon from '../components/AppIcon.vue'
@@ -187,6 +298,7 @@ import StorageManage from './StorageManage.vue'
 import {
   listAdminUsers, createAdminUser, updateAdminUser, deleteAdminUser,
   resetAdminPassword, changeMyPassword, myProfile,
+  listDevices, listSyncTasks, listLibraries, ensureDeviceLibrary,
 } from '../api'
 import { APP_VERSION } from '../version'
 
@@ -195,6 +307,7 @@ const router = useRouter()
 
 const TABS = [
   { v: 'storage', t: '存储管理', icon: 'server' },
+  { v: 'devices', t: '手机同步', icon: 'phone' },
   { v: 'account', t: '账号设置', icon: 'user' },
   { v: 'about', t: '关于', icon: 'info' },
 ]
@@ -202,6 +315,7 @@ const tab = ref(route.query.tab === 'account' || route.query.tab === 'about'
   ? route.query.tab : 'storage')
 function setTab(v) {
   tab.value = v
+  onTabChange(v)
   router.replace({ query: { ...route.query, tab: v } })
 }
 
@@ -345,8 +459,130 @@ function fmtTime(t) {
   return isNaN(d.getTime()) ? t : d.toLocaleString('zh-CN')
 }
 
+// ---------------- 手机同步设备 ----------------
+const devices = ref([])
+const dLoading = ref(false)
+const syncTasks = ref([])
+const tLoading = ref(false)
+const libMap = ref({})
+const libByName = computed(() => {
+  const m = {}
+  for (const id in libMap.value) {
+    const l = libMap.value[id]
+    if (l && l.type === 1) m[l.name] = l
+  }
+  return m
+})
+const devMap = ref({})
+const linkBusy = reactive({})
+let syncTimer = null
+
+async function loadDevices() {
+  dLoading.value = true
+  try {
+    const d = await listDevices()
+    devices.value = d || []
+    devMap.value = Object.fromEntries(devices.value.map((x) => [x.id, x]))
+  } catch (e) {
+    ElMessage.error(e.message || '加载设备失败')
+  } finally {
+    dLoading.value = false
+  }
+}
+
+async function loadSyncTasks() {
+  tLoading.value = true
+  try {
+    const d = await listSyncTasks()
+    syncTasks.value = d || []
+  } catch (e) {
+    ElMessage.error(e.message || '加载同步任务失败')
+  } finally {
+    tLoading.value = false
+  }
+}
+
+async function loadLibMap() {
+  try {
+    const libs = await listLibraries()
+    libMap.value = Object.fromEntries((libs || []).map((x) => [x.id, x]))
+  } catch (e) { /* 忽略 */ }
+}
+
+function deviceNameOf(id) {
+  return devMap.value[id]?.device_name || ('设备 ' + id)
+}
+function libraryNameOf(id) {
+  return libMap.value[id]?.name || ('库 ' + id)
+}
+// 设备名对应的已存在托管库（web 端是否已为该手机建好存储库）
+function linkedLibOf(row) {
+  return (row && row.device_name && libByName.value[row.device_name]) || null
+}
+// 链接检查：web 端没有该手机的存储库就先新建一个；已有则确认可达
+async function checkLink(row) {
+  linkBusy[row.id] = true
+  try {
+    const d = await ensureDeviceLibrary(row.id)
+    const name = d.name || (d.library && d.library.name) || ''
+    ElMessage.success((d.created ? '已新建' : '已确认') + `存储库「${name}」`)
+    loadLibMap()
+    loadDevices()
+  } catch (e) {
+    ElMessage.error(e.message || '检查连接失败')
+  } finally {
+    linkBusy[row.id] = false
+  }
+}
+// 一键检查全部设备的链接与存储库
+async function checkAllLinks() {
+  if (!devices.value.length) return
+  for (const d of devices.value) {
+    if (linkBusy[d.id]) continue
+    await checkLink(d)
+  }
+}
+function taskStatusText(s) {
+  return { 0: '空闲', 1: '同步中', 2: '已完成', 3: '失败', 4: '已暂停' }[s] || '—'
+}
+function taskStatusType(s) {
+  return { 0: 'info', 1: 'warning', 2: 'success', 3: 'danger', 4: '' }[s] || 'info'
+}
+function taskPercent(row) {
+  const total = row.total_count || 0
+  if (!total) return 0
+  const done = (row.synced_count || 0) + (row.failed_count || 0) + (row.skipped_count || 0)
+  return Math.min(100, Math.floor((done / total) * 100))
+}
+
+function startSyncPolling() {
+  stopSyncPolling()
+  loadDevices()
+  loadSyncTasks()
+  loadLibMap()
+  syncTimer = setInterval(() => {
+    if (tab.value === 'devices') {
+      loadDevices()
+      loadSyncTasks()
+    }
+  }, 5000)
+}
+function stopSyncPolling() {
+  if (syncTimer) {
+    clearInterval(syncTimer)
+    syncTimer = null
+  }
+}
+
+// 切换到设备 tab 时启动轮询
+function onTabChange(v) {
+  if (v === 'devices') startSyncPolling()
+  else stopSyncPolling()
+}
+
 onMounted(async () => {
   loadUsers()
+  if (tab.value === 'devices') startSyncPolling()
   try {
     const p = await myProfile()
     me.value = p

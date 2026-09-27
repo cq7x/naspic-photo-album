@@ -133,6 +133,7 @@ func (s *Server) Engine() *gin.Engine {
 		// 手机设备/同步任务
 		g.POST("/sync/devices", s.registerDevice)
 		g.GET("/sync/devices", s.listDevices)
+		g.POST("/sync/devices/:id/ensure-library", s.ensureDeviceLibraryHandler)
 		g.GET("/sync/tasks", s.listSyncTasks)
 		g.PUT("/sync/tasks", s.upsertSyncTask)
 		g.DELETE("/sync/tasks/:id", s.deleteSyncTask)
